@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#BB86FC">
+  <meta name="description" content="ScoreKeeper Pro — Gestionnaire de scores pour Dame de Pique, Magic, Jeu de 500 et plus">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ScoreKeeper">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="ScoreKeeper Pro">
+  <meta property="og:description" content="Gestionnaire de scores hors-ligne pour vos jeux de cartes">
+  <meta property="og:type" content="website">
+
+  <title>ScoreKeeper Pro</title>
+
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Point de montage principal de l'application -->
+  <div id="app">
+    <!-- Le contenu est généré dynamiquement par app.js -->
+    <div style="
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #E1E1E1;
+      gap: 16px;
+    ">
+      <div style="font-size: 52px">🂡</div>
+      <div style="font-size: 20px; font-weight: 700;">ScoreKeeper Pro</div>
+      <div style="
+        width: 32px; height: 32px;
+        border: 3px solid #333;
+        border-top-color: #BB86FC;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      "></div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+
+  <!-- Application principale -->
+  <script src="app.js"></script>
+</body>
+</html>
