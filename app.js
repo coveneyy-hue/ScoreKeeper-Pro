@@ -603,8 +603,8 @@ const Screens = {
           <div class="magic-player-name">${Utils.esc(p.name)}</div>
           <div class="magic-hp ${hpClass}" id="magic-hp-${i}">${p.life}</div>
           <div class="magic-controls">
-            <button class="magic-btn magic-btn-minus" onclick="UI.magicChange(${i}, -State._magicDelta)">−</button>
-            <button class="magic-btn magic-btn-plus"  onclick="UI.magicChange(${i}, +State._magicDelta)">+</button>
+            <button class="magic-btn magic-btn-minus" onclick="UI.magicChange(${i}, -1)">−</button>
+            <button class="magic-btn magic-btn-plus"  onclick="UI.magicChange(${i}, +1)">+</button>
           </div>
           <div class="magic-delta" id="magic-delta-${i}"></div>
         </div>
@@ -862,10 +862,10 @@ const UI = {
     });
   },
 
-  async magicChange(playerIdx, rawDelta) {
+  async magicChange(playerIdx, sign) {
     const game  = State.currentGame;
-    const delta = rawDelta < 0 ? -this._magicDelta : this._magicDelta;
-    const result = Games.magic.changeLife(game, playerIdx, rawDelta > 0 ? this._magicDelta : -this._magicDelta);
+    const delta = sign * this._magicDelta;
+    const result = Games.magic.changeLife(game, playerIdx, delta);
     await DB.save('games', game);
 
     // Animation du HP
