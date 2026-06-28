@@ -856,7 +856,7 @@ const UI = {
 
   /* ─── MAGIC ─── */
   setMagicDelta(val) {
-    this._magicDelta = val;
+    UI._magicDelta = val;
     document.querySelectorAll('.magic-quick-btn').forEach(btn => {
       btn.classList.toggle('selected', parseInt(btn.dataset.val) === val);
     });
@@ -864,7 +864,7 @@ const UI = {
 
   async magicChange(playerIdx, sign) {
     const game  = State.currentGame;
-    const delta = sign * this._magicDelta;
+    const delta = sign * UI._magicDelta;
     const result = Games.magic.changeLife(game, playerIdx, delta);
     await DB.save('games', game);
 
@@ -919,7 +919,7 @@ const UI = {
         const pts = FIVE_HUNDRED_SCORES[key];
         const label = suit === 'NT' ? '🚫' : suit;
         return `
-          <button class="contract-btn ${this._selectedContract === key ? 'selected' : ''}"
+          <button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}"
             onclick="UI.selectContract('${key}')" data-key="${key}">
             <span class="suit-icon">${label}</span>
             <span>${bid}</span>
@@ -933,7 +933,7 @@ const UI = {
   },
 
   selectContract(key) {
-    this._selectedContract = key;
+    UI._selectedContract = key;
     const pts = FIVE_HUNDRED_SCORES[key];
     document.querySelectorAll('.contract-btn').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.key === key);
@@ -946,7 +946,7 @@ const UI = {
   },
 
   selectFhTeam(idx) {
-    this._selectedTeam = idx;
+    UI._selectedTeam = idx;
     document.querySelectorAll('.team-select-btn').forEach((btn, i) => {
       btn.classList.toggle('selected', i === idx);
       btn.classList.toggle(`team-${i}`, i === idx);
@@ -955,26 +955,26 @@ const UI = {
   },
 
   updateFhSubmitBtn() {
-    const ok = this._selectedContract !== null && this._selectedTeam !== null;
+    const ok = UI._selectedContract !== null && UI._selectedTeam !== null;
     document.getElementById('fh-btn-success').disabled = !ok;
     document.getElementById('fh-btn-fail').disabled    = !ok;
   },
 
   async fhApplyResult(success) {
-    if (this._selectedContract === null || this._selectedTeam === null) return;
+    if (UI._selectedContract === null || UI._selectedTeam === null) return;
     const game   = State.currentGame;
-    const result = Games.fiveHundred.applyContract(game, this._selectedTeam, this._selectedContract, success);
+    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, UI._selectedContract, success);
 
     await DB.save('games', game);
 
     const pts = result.delta;
     Utils.toast(
-      success ? `✅ +${FIVE_HUNDRED_SCORES[this._selectedContract]} pts` : `❌ ${result.delta} pts`,
+      success ? `✅ +${FIVE_HUNDRED_SCORES[UI._selectedContract]} pts` : `❌ ${result.delta} pts`,
       success ? 'success' : 'error'
     );
 
-    this._selectedContract = null;
-    this._selectedTeam     = null;
+    UI._selectedContract = null;
+    UI._selectedTeam     = null;
     Screens.render_five_hundred();
   },
 
