@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.0.7';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -923,6 +923,122 @@ const UI = {
     }
   },
 
+  /** Démarre immédiatement avec les joueurs standards */
+  async quickStartGame() {
+    const type = document.getElementById('new-game-type').value;
+    const gameName = document.getElementById('game-display-name')?.value.trim() || '';
+    const quickPlayers = ['Yannick', 'Victor', 'Julie', 'Lily'];
+
+    try {
+      let game;
+
+      if (type === 'fiveHundred') {
+        game = Games.fiveHundred.create('Yannick / Victor', 'Julie / Lily');
+      } else if (type === 'magic') {
+        const life = parseInt(document.getElementById('magic-start-life')?.value || '20', 10);
+        game = Games.magic.create(quickPlayers, life);
+        localStorage.setItem('savedPlayerNames', JSON.stringify(quickPlayers));
+      } else if (type === 'generic') {
+        const limitVal = parseInt(document.getElementById('score-limit')?.value || '0', 10) || 0;
+        game = Games.generic.create(quickPlayers, limitVal > 0 ? limitVal : null);
+        localStorage.setItem('savedPlayerNames', JSON.stringify(quickPlayers));
+      } else {
+        game = Games.hearts.create(quickPlayers);
+        localStorage.setItem('savedPlayerNames', JSON.stringify(quickPlayers));
+      }
+
+      game.name = gameName;
+      State.currentGame = game;
+      await DB.save('games', game);
+      Utils.toast('Partie rapide créée !', 'success');
+
+      const screenMap = { hearts: 'hearts', magic: 'magic', fiveHundred: 'five-hundred', generic: 'generic' };
+      Router.go(screenMap[type] || 'home');
+    } catch (err) {
+      console.error(err);
+      Utils.toast('Erreur lors du démarrage rapide', 'error');
+    }
+  },
+
+  /** Ajoute un joueur à 0 point dans la partie active */
+  async addPlayerToCurrentGame() {
+    const game = State.currentGame;
+    if (!game) return;
+    if (!['hearts', 'magic', 'generic'].includes(game.type)) {
+      Utils.toast('Ajout de joueur non disponible pour ce type de partie', 'error');
+      return;
+    }
+
+    const name = prompt('Nom du joueur à ajouter :');
+    const cleanName = String(name || '').trim();
+    if (!cleanName) return;
+
+    if (game.type === 'magic') {
+      game.players.push({ name: cleanName, life: 0, dead: true });
+    } else if (game.type === 'generic') {
+      game.players.push({ name: cleanName, score: 0 });
+    } else if (game.type === 'hearts') {
+      game.players.push({ name: cleanName, score: 0 });
+    }
+
+    game.updatedAt = new Date().toISOString();
+    await DB.save('games', game);
+    Utils.toast(`${cleanName} ajouté avec 0 point`, 'success');
+    this.renderCurrentGameScreen();
+  },
+
+  /** Supprime un joueur seulement si sa valeur actuelle est 0 */
+  async removeZeroPlayerFromCurrentGame() {
+    const game = State.currentGame;
+    if (!game) return;
+    if (!['hearts', 'magic', 'generic'].includes(game.type)) {
+      Utils.toast('Suppression de joueur non disponible pour ce type de partie', 'error');
+      return;
+    }
+    if (!game.players || game.players.length <= 2) {
+      Utils.toast('Impossible : il doit rester au moins 2 joueurs', 'error');
+      return;
+    }
+
+    const valueOf = (p) => game.type === 'magic' ? Number(p.life || 0) : Number(p.score || 0);
+    const eligible = game.players
+      .map((p, i) => ({ index: i, name: p.name, value: valueOf(p) }))
+      .filter(p => p.value === 0);
+
+    if (!eligible.length) {
+      Utils.toast('Aucun joueur à 0 point à supprimer', 'error');
+      return;
+    }
+
+    const message = 'Joueur à supprimer. Entrez le numéro :\n' +
+      eligible.map((p, n) => `${n + 1}. ${p.name}`).join('\n');
+    const choice = parseInt(prompt(message) || '', 10);
+    if (!choice || choice < 1 || choice > eligible.length) return;
+
+    const target = eligible[choice - 1];
+    const confirmed = confirm(`Supprimer ${target.name} de la partie ?`);
+    if (!confirmed) return;
+
+    game.players.splice(target.index, 1);
+    game.updatedAt = new Date().toISOString();
+    await DB.save('games', game);
+    Utils.toast(`${target.name} supprimé`, 'success');
+    this.renderCurrentGameScreen();
+  },
+
+  /** Rafraîchit l'écran de la partie active */
+  renderCurrentGameScreen() {
+    const game = State.currentGame;
+    if (!game) return;
+    const screenMap = {
+      hearts: 'hearts',
+      magic: 'magic',
+      fiveHundred: 'five-hundred',
+      generic: 'generic',
+    };
+    Screens.render(screenMap[game.type] || State.currentScreen, {});
+  },
+
   /** Retour à l'accueil */
   goHome() {
     Router.go('home');
@@ -1373,6 +1489,7 @@ function buildScreenHTML() {
       <div id="new-game-options"></div>
 
       <button class="btn btn-primary" onclick="UI.createGame()">▶ Démarrer la partie</button>
+      <button class="btn btn-success" onclick="UI.quickStartGame()">⚡ Démarrer rapidement</button>
       <div class="bottom-safe"></div>
     </div>
 
@@ -1417,6 +1534,10 @@ function buildScreenHTML() {
         ✓ Valider la manche
       </button>
 
+      <div class="btn-row">
+        <button class="btn btn-secondary btn-sm" onclick="UI.addPlayerToCurrentGame()">➕ Ajouter joueur</button>
+        <button class="btn btn-secondary btn-sm" onclick="UI.removeZeroPlayerFromCurrentGame()">➖ Supprimer joueur à 0</button>
+      </div>
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
       <div class="bottom-safe"></div>
     </div>
@@ -1445,6 +1566,10 @@ function buildScreenHTML() {
 
       <div class="magic-grid" id="magic-players-grid"></div>
 
+      <div class="btn-row">
+        <button class="btn btn-secondary btn-sm" onclick="UI.addPlayerToCurrentGame()">➕ Ajouter joueur</button>
+        <button class="btn btn-secondary btn-sm" onclick="UI.removeZeroPlayerFromCurrentGame()">➖ Supprimer joueur à 0</button>
+      </div>
       <button class="btn btn-secondary btn-sm" onclick="UI.goHistory()">📋 Historique</button>
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
       <div class="bottom-safe"></div>
@@ -1524,6 +1649,10 @@ function buildScreenHTML() {
 
       <div id="generic-players" class="generic-score-players"></div>
 
+      <div class="btn-row">
+        <button class="btn btn-secondary btn-sm" onclick="UI.addPlayerToCurrentGame()">➕ Ajouter joueur</button>
+        <button class="btn btn-secondary btn-sm" onclick="UI.removeZeroPlayerFromCurrentGame()">➖ Supprimer joueur à 0</button>
+      </div>
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
       <div class="bottom-safe"></div>
     </div>
