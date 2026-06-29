@@ -603,8 +603,8 @@ const Screens = {
           <div class="magic-player-name">${Utils.esc(p.name)}</div>
           <div class="magic-hp ${hpClass}" id="magic-hp-${i}">${p.life}</div>
           <div class="magic-controls">
-            <button class="magic-btn magic-btn-minus" onclick="UI.magicChange(${i}, -1)">−</button>
-            <button class="magic-btn magic-btn-plus"  onclick="UI.magicChange(${i}, +1)">+</button>
+            <button class="magic-btn magic-btn-minus" aria-label="Retirer des points de vie" onclick="UI.magicLose(${i})">−</button>
+            <button class="magic-btn magic-btn-plus"  aria-label="Ajouter des points de vie" onclick="UI.magicGain(${i})">+</button>
           </div>
           <div class="magic-delta" id="magic-delta-${i}"></div>
         </div>
@@ -862,10 +862,20 @@ const UI = {
     });
   },
 
-  async magicChange(playerIdx, sign) {
-    const game  = State.currentGame;
-    const delta = sign * UI._magicDelta;
-    const result = Games.magic.changeLife(game, playerIdx, delta);
+  magicGain(playerIdx) {
+    return this.magicChange(playerIdx, Math.abs(UI._magicDelta));
+  },
+
+  magicLose(playerIdx) {
+    return this.magicChange(playerIdx, -Math.abs(UI._magicDelta));
+  },
+
+  async magicChange(playerIdx, delta) {
+    const game = State.currentGame;
+    const amount = Number(delta);
+    if (!game || !Number.isFinite(amount) || amount === 0) return;
+
+    const result = Games.magic.changeLife(game, playerIdx, amount);
     await DB.save('games', game);
 
     // Animation du HP

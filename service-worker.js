@@ -3,7 +3,7 @@
  * Gestion du cache pour le fonctionnement hors ligne
  */
 
-const CACHE_NAME = 'scorekeeper-v1.0.0';
+const CACHE_NAME = 'scorekeeper-v1.0.1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
