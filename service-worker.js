@@ -1,9 +1,10 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * Gestion du cache pour le fonctionnement hors ligne
+ * Version 1.0.5
+ * Stratégie Network First pour éviter de garder une ancienne interface en cache.
  */
 
-const CACHE_NAME = 'scorekeeper-v1.0.4';
+const CACHE_NAME = 'scorekeeper-v1.0.5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -14,60 +15,39 @@ const ASSETS_TO_CACHE = [
   './icon-512.png'
 ];
 
-// Installation : mise en cache de tous les assets
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installation en cours...');
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Mise en cache des assets');
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => {
-      console.log('[SW] Installation terminée');
-      return self.skipWaiting();
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(ASSETS_TO_CACHE))
+      .then(() => self.skipWaiting())
   );
 });
 
-// Activation : suppression des anciens caches
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activation en cours...');
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys()
+      .then((cacheNames) => Promise.all(
         cacheNames
-          .filter(name => name !== CACHE_NAME)
-          .map(name => {
-            console.log('[SW] Suppression du cache:', name);
-            return caches.delete(name);
-          })
-      );
-    }).then(() => {
-      console.log('[SW] Activation terminée');
-      return self.clients.claim();
-    })
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// Interception des requêtes : stratégie Cache First
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((response) => {
+    fetch(event.request)
+      .then((response) => {
         if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
         }
         const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
         return response;
-      }).catch(() => {
-        // Retourner la page d'accueil si hors ligne
-        return caches.match('./index.html');
-      });
-    })
+      })
+      .catch(() => caches.match(event.request).then((cachedResponse) => cachedResponse || caches.match('./index.html')))
   );
 });

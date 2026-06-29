@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.0.4';
+const APP_VERSION = '1.0.5';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -733,6 +733,62 @@ const Screens = {
     }
   },
 
+  /* ─── Journal central ─── */
+  async render_central_journal() {
+    const games = await DB.getAll('games');
+    const logs = await DB.getAll('logs');
+    const el = document.getElementById('central-journal-list');
+    const statsEl = document.getElementById('central-journal-stats');
+
+    const sorted = [...games].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+    const activeCount = sorted.filter(g => g.status === 'active').length;
+    const finishedCount = sorted.filter(g => g.status === 'finished').length;
+
+    if (statsEl) {
+      statsEl.innerHTML = `
+        <div class="stat-row"><span class="stat-label">Parties actives</span><span class="stat-value">${activeCount}</span></div>
+        <div class="stat-row"><span class="stat-label">Parties archivées</span><span class="stat-value">${finishedCount}</span></div>
+        <div class="stat-row"><span class="stat-label">Total des parties</span><span class="stat-value">${sorted.length}</span></div>
+        <div class="stat-row"><span class="stat-label">Entrées techniques</span><span class="stat-value">${logs.length}</span></div>
+      `;
+    }
+
+    if (!el) return;
+    if (!sorted.length) {
+      el.innerHTML = `<div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <div class="empty-state-text">Aucune partie enregistrée</div>
+      </div>`;
+      return;
+    }
+
+    const typeLabel = {
+      hearts: '♠ Dame de Pique',
+      magic: '🔮 Magic',
+      fiveHundred: '🃏 Jeu de 500',
+      generic: '🎮 Générique'
+    };
+
+    el.innerHTML = sorted.map(g => {
+      const title = g.name && g.name.trim() ? g.name.trim() : (typeLabel[g.type] || g.type || 'Partie');
+      const type = typeLabel[g.type] || g.type || 'Type inconnu';
+      const status = g.status === 'active' ? 'Active' : 'Archivée';
+      const badgeClass = g.status === 'active' ? 'badge-success' : 'badge-accent';
+      const historyCount = Array.isArray(g.history) ? g.history.length : 0;
+      return `
+        <div class="history-entry" onclick="UI.resumeGameById('${Utils.esc(g.id)}')">
+          <div class="history-header">
+            <span class="history-player">${Utils.esc(title)}</span>
+            <span class="badge ${badgeClass}">${status}</span>
+          </div>
+          <div class="history-detail">
+            ${Utils.esc(type)} · ${historyCount} action(s) · ${Utils.formatDate(g.updatedAt || g.createdAt)}
+          </div>
+        </div>
+      `;
+    }).join('');
+  },
+
   /* ─── Historique ─── */
   async render_history() {
     if (!State.currentGame) return;
@@ -875,6 +931,22 @@ const UI = {
   /** Va à l'écran historique */
   goHistory() {
     Router.go('history');
+  },
+
+  /** Va au journal central */
+  goCentralJournal() {
+    State.currentGame = null;
+    Router.go('central-journal');
+  },
+
+  /** Reprend une partie depuis son identifiant */
+  async resumeGameById(gameId) {
+    const game = await DB.get('games', gameId);
+    if (!game) {
+      Utils.toast('Partie introuvable', 'error');
+      return;
+    }
+    UI.resumeGame(game);
   },
 
   /* ─── HEARTS ─── */
@@ -1279,6 +1351,8 @@ function buildScreenHTML() {
 
       <div class="card">
         <div class="card-title">Données</div>
+        <button class="btn btn-secondary btn-sm" onclick="UI.goCentralJournal()">📋 Journal central</button>
+        <div style="height:10px"></div>
         <div class="btn-row">
           <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Exporter tout</button>
           <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Importer</button>
@@ -1455,6 +1529,30 @@ function buildScreenHTML() {
       <div class="bottom-safe"></div>
     </div>
 
+    <!-- ══ JOURNAL CENTRAL ══ -->
+    <div class="screen" id="screen-central-journal">
+      <div class="app-header">
+        <button class="btn-back" onclick="Router.go('home')">‹</button>
+        <div class="header-title">📋 Journal central</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Résumé</div>
+        <div id="central-journal-stats"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Parties enregistrées</div>
+        <div class="history-list" id="central-journal-list">
+          <div class="spinner"></div>
+        </div>
+      </div>
+
+      <button class="btn btn-danger btn-sm" onclick="UI.deleteAllGamesAndHistory()">🗑️ Supprimer toutes les parties et l’historique</button>
+
+      <div class="bottom-safe"></div>
+    </div>
+
     <!-- ══ HISTORIQUE ══ -->
     <div class="screen" id="screen-history">
       <div class="app-header">
@@ -1470,8 +1568,6 @@ function buildScreenHTML() {
           <div class="spinner"></div>
         </div>
       </div>
-
-      <button class="btn btn-danger btn-sm" onclick="UI.deleteAllGamesAndHistory()">🗑️ Supprimer toutes les parties et l’historique</button>
 
       <div class="bottom-safe"></div>
     </div>
