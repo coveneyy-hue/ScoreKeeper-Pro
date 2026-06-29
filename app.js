@@ -185,6 +185,12 @@ const Utils = {
     return d.toLocaleDateString('fr-CA') + ' ' + d.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
   },
 
+  /** Retourne le nom d'affichage d'une partie */
+  gameTitle(game, fallback) {
+    const name = String(game?.name || '').trim();
+    return name ? name : fallback;
+  },
+
   /** Formate un nombre signé */
   signed(n) { return n > 0 ? `+${n}` : `${n}`; },
 
@@ -208,6 +214,14 @@ const Utils = {
     el.textContent = msg;
     container.appendChild(el);
     setTimeout(() => { el.remove(); }, duration);
+  },
+
+  /** Nettoie une valeur pour un nom de fichier */
+  fileSafeName(value) {
+    return String(value || 'partie')
+      .trim()
+      .replace(/[^a-z0-9À-ÿ_-]+/gi, '-')
+      .replace(/^-+|-+$/g, '') || 'partie';
   },
 
   /** Exporte les données en JSON et propose le téléchargement */
@@ -269,6 +283,7 @@ const Games = {
     create(players) {
       return {
         id: Utils.uid(),
+        name: '',
         type: 'hearts',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -314,6 +329,7 @@ const Games = {
     create(players, startingLife = 20) {
       return {
         id: Utils.uid(),
+        name: '',
         type: 'magic',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -358,6 +374,7 @@ const Games = {
     create(team0Name, team1Name) {
       return {
         id: Utils.uid(),
+        name: '',
         type: 'fiveHundred',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -403,6 +420,7 @@ const Games = {
     create(players, scoreLimit = null) {
       return {
         id: Utils.uid(),
+        name: '',
         type: 'generic',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -458,11 +476,13 @@ const Screens = {
     if (active.length > 0) {
       const g = active[0];
       const typeLabel = { hearts: '♠ Dame de Pique', magic: '🔮 Magic', fiveHundred: '🃏 Jeu de 500', generic: '🎮 Générique' };
+      const title = Utils.gameTitle(g, typeLabel[g.type] || g.type);
+      const subtitle = g.name ? `${typeLabel[g.type] || g.type} · ${Utils.formatDate(g.updatedAt)}` : `${Utils.formatDate(g.updatedAt)}`;
       banner.innerHTML = `
         <div class="resume-banner-icon">▶️</div>
         <div class="resume-banner-text">
-          <div class="resume-banner-title">Reprendre la partie</div>
-          <div class="resume-banner-sub">${Utils.esc(typeLabel[g.type] || g.type)} · ${Utils.formatDate(g.updatedAt)}</div>
+          <div class="resume-banner-title">${Utils.esc(title)}</div>
+          <div class="resume-banner-sub">${Utils.esc(subtitle)}</div>
         </div>
         <div class="resume-banner-arrow">›</div>
       `;
@@ -496,8 +516,19 @@ const Screens = {
     const container = document.getElementById('new-game-options');
     container.innerHTML = '';
 
+    const commonOptionsHtml = `
+      <div class="card">
+        <div class="card-title">Identification</div>
+        <div class="form-group">
+          <label class="form-label">Nom de la partie <span style="font-weight:400;color:var(--text-secondary)">(optionnel)</span></label>
+          <input class="form-input" id="game-display-name" type="text" placeholder="Ex. Soirée chalet, Finale, Partie rapide" maxlength="40">
+        </div>
+      </div>
+    `;
+
     if (type === 'fiveHundred') {
       container.innerHTML = `
+        ${commonOptionsHtml}
         <div class="card">
           <div class="card-title">Noms des équipes</div>
           <div class="form-group">
@@ -538,6 +569,7 @@ const Screens = {
       }
 
       container.innerHTML = `
+        ${commonOptionsHtml}
         ${extraHtml}
         <div class="card">
           <div class="card-title">Joueurs</div>
@@ -577,6 +609,7 @@ const Screens = {
   render_hearts(data) {
     if (!State.currentGame || State.currentGame.type !== 'hearts') return;
     const game = State.currentGame;
+    document.querySelector('#screen-hearts .header-title').textContent = Utils.gameTitle(game, '♠ Dame de Pique');
 
     document.getElementById('hearts-round-num').textContent  = `Round ${game.round}`;
     document.getElementById('hearts-total-val').textContent  = game.players.reduce((s,p) => s+p.score, 0);
@@ -613,6 +646,7 @@ const Screens = {
   render_magic() {
     if (!State.currentGame || State.currentGame.type !== 'magic') return;
     const game = State.currentGame;
+    document.querySelector('#screen-magic .header-title').textContent = Utils.gameTitle(game, '🔮 Magic: The Gathering');
 
     const grid = document.getElementById('magic-players-grid');
     grid.innerHTML = game.players.map((p, i) => {
@@ -637,6 +671,7 @@ const Screens = {
   render_five_hundred() {
     if (!State.currentGame || State.currentGame.type !== 'fiveHundred') return;
     const game = State.currentGame;
+    document.querySelector('#screen-five-hundred .header-title').textContent = Utils.gameTitle(game, '🃏 Jeu de 500');
 
     // Scores des équipes
     const teamsEl = document.getElementById('fh-teams');
@@ -666,6 +701,7 @@ const Screens = {
   render_generic() {
     if (!State.currentGame || State.currentGame.type !== 'generic') return;
     const game = State.currentGame;
+    document.querySelector('#screen-generic .header-title').textContent = Utils.gameTitle(game, '🎮 Jeu Générique');
 
     const container = document.getElementById('generic-players');
     const winner = game.players.find(p => game.scoreLimit && p.score >= game.scoreLimit);
@@ -699,6 +735,7 @@ const Screens = {
   async render_history() {
     if (!State.currentGame) return;
     const game = State.currentGame;
+    document.querySelector('#screen-history .header-title').textContent = Utils.gameTitle(game, '📋 Historique');
     const el   = document.getElementById('history-list');
 
     const entries = [...game.history].reverse();
@@ -785,6 +822,7 @@ const UI = {
   /** Crée la partie à partir du formulaire */
   async createGame() {
     const type = document.getElementById('new-game-type').value;
+    const gameName = document.getElementById('game-display-name')?.value.trim() || '';
 
     try {
       let game;
@@ -813,6 +851,7 @@ const UI = {
         }
       }
 
+      game.name = gameName;
       State.currentGame = game;
       await DB.save('games', game);
       Utils.toast('Partie créée !', 'success');
@@ -1031,7 +1070,7 @@ const UI = {
     const logs     = await DB.getAll('logs');
     const settings = await DB.getAll('settings');
     const data = {
-      version: '1.0.2',
+      version: '1.0.3',
       exportedAt: new Date().toISOString(),
       games,
       logs,
@@ -1046,11 +1085,11 @@ const UI = {
     const game = State.currentGame;
     const allLogs = await DB.getLogs(game.id);
     Utils.downloadJSON({
-      version: '1.0.2',
+      version: '1.0.3',
       exportedAt: new Date().toISOString(),
       game,
       logs: allLogs,
-    }, `partie-${game.type}-${new Date().toISOString().slice(0,10)}.json`);
+    }, `partie-${Utils.fileSafeName(game.name || game.type)}-${new Date().toISOString().slice(0,10)}.json`);
     Utils.toast('Partie exportée avec son historique !', 'success');
   },
 
