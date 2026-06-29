@@ -739,6 +739,15 @@ body {
 }
 .generic-delta-input:focus { outline: none; border-color: var(--accent); }
 
+.generic-visible-delta {
+  min-height: 18px;
+  margin-top: 6px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── History Log ── */
 .history-list {
   display: flex;

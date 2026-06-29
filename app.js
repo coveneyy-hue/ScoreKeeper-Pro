@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.0.7';
+const APP_VERSION = '1.0.9';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -722,6 +722,7 @@ const Screens = {
           <button class="btn btn-success btn-icon" onclick="UI.genericApply(${i}, 1)">+</button>
           <button class="btn btn-danger  btn-icon" onclick="UI.genericApply(${i}, -1)">−</button>
         </div>
+        <div class="generic-visible-delta" id="generic-visible-delta-${i}"></div>
       </div>
     `).join('');
 
@@ -859,6 +860,23 @@ const UI = {
   _magicDelta: 1,       // valeur par défaut pour +/- en Magic
   _selectedContract: null,  // contrat sélectionné en jeu de 500
   _selectedTeam: null,      // équipe sélectionnée en jeu de 500
+  _visibleDeltas: {},       // cumul temporaire affiché sous un joueur
+  _visibleDeltaTimers: {},  // minuteurs de remise à zéro des cumuls visibles
+
+  _showAccumulatedDelta(key, el, delta) {
+    if (!el) return;
+    UI._visibleDeltas[key] = (UI._visibleDeltas[key] || 0) + delta;
+    const total = UI._visibleDeltas[key];
+    el.textContent = Utils.signed(total);
+    el.style.color = total > 0 ? 'var(--success)' : total < 0 ? 'var(--danger)' : 'var(--text-secondary)';
+
+    if (UI._visibleDeltaTimers[key]) clearTimeout(UI._visibleDeltaTimers[key]);
+    UI._visibleDeltaTimers[key] = setTimeout(() => {
+      UI._visibleDeltas[key] = 0;
+      el.textContent = '';
+      delete UI._visibleDeltaTimers[key];
+    }, 10000);
+  },
 
   /** Démarre la création d'une partie */
   startNewGame(type) {
@@ -1128,14 +1146,10 @@ const UI = {
       hpEl.className = `magic-hp ${pct > 0.5 ? 'high' : pct > 0.25 ? 'mid' : 'low'}`;
       card.className  = `magic-player-card ${p.dead ? 'dead' : ''}`;
 
-      // Delta flash
+      // Delta cumulé temporaire : plusieurs clics successifs s'additionnent visuellement.
       const dEl = document.getElementById(`magic-delta-${playerIdx}`);
-      if (dEl) {
-        const actualDelta = result.newValue - result.old;
-        dEl.textContent = Utils.signed(actualDelta);
-        dEl.style.color = actualDelta > 0 ? 'var(--success)' : 'var(--danger)';
-        setTimeout(() => { dEl.textContent = ''; }, 1500);
-      }
+      const actualDelta = result.newValue - result.old;
+      UI._showAccumulatedDelta(`magic-${game.id}-${playerIdx}`, dEl, actualDelta);
     }
 
     // Vérifier s'il reste un seul joueur vivant
@@ -1244,6 +1258,9 @@ const UI = {
       scoreEl.textContent = result.newValue;
       scoreEl.className   = `score ${result.newValue < 0 ? 'negative' : ''}`;
     }
+
+    const dEl = document.getElementById(`generic-visible-delta-${playerIdx}`);
+    UI._showAccumulatedDelta(`generic-${game.id}-${playerIdx}`, dEl, delta);
 
     Utils.toast(`${game.players[playerIdx].name} : ${Utils.signed(delta)} pts`, 'success');
     deltaInput.value = 0;

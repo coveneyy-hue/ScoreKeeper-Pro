@@ -1,10 +1,10 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * Version 1.0.7
+ * Version 1.0.9
  * Stratégie Network First pour éviter de garder une ancienne interface en cache.
  */
 
-const CACHE_NAME = 'scorekeeper-v1.0.7';
+const CACHE_NAME = 'scorekeeper-v1.0.9';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
