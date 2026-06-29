@@ -1002,3 +1002,26 @@ body {
 @media (min-width: 420px) {
   .magic-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 }
+
+/* ── Accueil : actions données en icônes seulement ── */
+.home-data-card { padding-bottom: 14px; }
+.home-data-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+.home-data-btn {
+  width: 56px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform var(--transition), background var(--transition), opacity var(--transition);
+}
+.home-data-btn:active { transform: scale(0.95); opacity: 0.85; }

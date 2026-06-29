@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.0.5';
+const APP_VERSION = '1.0.6';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -1349,13 +1349,12 @@ function buildScreenHTML() {
         </div>
       </div>
 
-      <div class="card">
+      <div class="card home-data-card">
         <div class="card-title">Données</div>
-        <button class="btn btn-secondary btn-sm" onclick="UI.goCentralJournal()">📋 Journal central</button>
-        <div style="height:10px"></div>
-        <div class="btn-row">
-          <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Exporter tout</button>
-          <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Importer</button>
+        <div class="home-data-actions">
+          <button class="home-data-btn" onclick="UI.goCentralJournal()" title="Journal central" aria-label="Journal central">📋</button>
+          <button class="home-data-btn" onclick="UI.exportData()" title="Exporter tout" aria-label="Exporter tout">📤</button>
+          <button class="home-data-btn" onclick="UI.importData()" title="Importer" aria-label="Importer">📥</button>
         </div>
       </div>
 

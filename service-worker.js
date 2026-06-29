@@ -4,7 +4,7 @@
  * Stratégie Network First pour éviter de garder une ancienne interface en cache.
  */
 
-const CACHE_NAME = 'scorekeeper-v1.0.5';
+const CACHE_NAME = 'scorekeeper-v1.0.6';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
