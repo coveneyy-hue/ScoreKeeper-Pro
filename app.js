@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.0.9';
+const APP_VERSION = '1.0.10';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -624,6 +624,7 @@ const Screens = {
       <div class="score-row ${p.score === minScore ? 'leader' : ''}">
         <div class="score-player-name">${Utils.esc(p.name)}</div>
         <div class="score-value">${p.score}</div>
+        <button class="player-delete-btn" onclick="UI.removePlayerFromCurrentGame(${i})" title="Supprimer ${Utils.esc(p.name)}" aria-label="Supprimer ${Utils.esc(p.name)}">🗑️</button>
       </div>
     `).join('');
 
@@ -657,6 +658,7 @@ const Screens = {
       return `
         <div class="magic-player-card ${p.dead ? 'dead' : ''}" id="magic-card-${i}">
           ${p.dead ? '<div class="magic-dead-overlay">💀</div>' : ''}
+          <button class="player-delete-btn player-delete-btn-corner" onclick="UI.removePlayerFromCurrentGame(${i})" title="Supprimer ${Utils.esc(p.name)}" aria-label="Supprimer ${Utils.esc(p.name)}">🗑️</button>
           <div class="magic-player-name">${Utils.esc(p.name)}</div>
           <div class="magic-hp ${hpClass}" id="magic-hp-${i}">${p.life}</div>
           <div class="magic-controls">
@@ -714,7 +716,10 @@ const Screens = {
             <span class="name">${Utils.esc(p.name)}</span>
             <span class="score ${p.score < 0 ? 'negative' : ''}" id="generic-score-${i}">${p.score}</span>
           </div>
-          ${game.scoreLimit ? `<span class="badge badge-accent">${game.scoreLimit} pts</span>` : ''}
+          <div class="generic-player-actions">
+            ${game.scoreLimit ? `<span class="badge badge-accent">${game.scoreLimit} pts</span>` : ''}
+            <button class="player-delete-btn" onclick="UI.removePlayerFromCurrentGame(${i})" title="Supprimer ${Utils.esc(p.name)}" aria-label="Supprimer ${Utils.esc(p.name)}">🗑️</button>
+          </div>
         </div>
         <div class="generic-input-row">
           <input class="generic-delta-input" type="number" id="generic-delta-${i}"
@@ -978,69 +983,24 @@ const UI = {
     }
   },
 
-  /** Ajoute un joueur à 0 point dans la partie active */
-  async addPlayerToCurrentGame() {
-    const game = State.currentGame;
-    if (!game) return;
-    if (!['hearts', 'magic', 'generic'].includes(game.type)) {
-      Utils.toast('Ajout de joueur non disponible pour ce type de partie', 'error');
-      return;
-    }
-
-    const name = prompt('Nom du joueur à ajouter :');
-    const cleanName = String(name || '').trim();
-    if (!cleanName) return;
-
-    if (game.type === 'magic') {
-      game.players.push({ name: cleanName, life: 0, dead: true });
-    } else if (game.type === 'generic') {
-      game.players.push({ name: cleanName, score: 0 });
-    } else if (game.type === 'hearts') {
-      game.players.push({ name: cleanName, score: 0 });
-    }
-
-    game.updatedAt = new Date().toISOString();
-    await DB.save('games', game);
-    Utils.toast(`${cleanName} ajouté avec 0 point`, 'success');
-    this.renderCurrentGameScreen();
-  },
-
-  /** Supprime un joueur seulement si sa valeur actuelle est 0 */
-  async removeZeroPlayerFromCurrentGame() {
+  /** Supprime un joueur de la partie active après confirmation */
+  async removePlayerFromCurrentGame(playerIdx) {
     const game = State.currentGame;
     if (!game) return;
     if (!['hearts', 'magic', 'generic'].includes(game.type)) {
       Utils.toast('Suppression de joueur non disponible pour ce type de partie', 'error');
       return;
     }
-    if (!game.players || game.players.length <= 2) {
-      Utils.toast('Impossible : il doit rester au moins 2 joueurs', 'error');
-      return;
-    }
+    if (!game.players || !game.players[playerIdx]) return;
 
-    const valueOf = (p) => game.type === 'magic' ? Number(p.life || 0) : Number(p.score || 0);
-    const eligible = game.players
-      .map((p, i) => ({ index: i, name: p.name, value: valueOf(p) }))
-      .filter(p => p.value === 0);
-
-    if (!eligible.length) {
-      Utils.toast('Aucun joueur à 0 point à supprimer', 'error');
-      return;
-    }
-
-    const message = 'Joueur à supprimer. Entrez le numéro :\n' +
-      eligible.map((p, n) => `${n + 1}. ${p.name}`).join('\n');
-    const choice = parseInt(prompt(message) || '', 10);
-    if (!choice || choice < 1 || choice > eligible.length) return;
-
-    const target = eligible[choice - 1];
-    const confirmed = confirm(`Supprimer ${target.name} de la partie ?`);
+    const player = game.players[playerIdx];
+    const confirmed = confirm(`Supprimer ${player.name} de la partie ?`);
     if (!confirmed) return;
 
-    game.players.splice(target.index, 1);
+    game.players.splice(playerIdx, 1);
     game.updatedAt = new Date().toISOString();
     await DB.save('games', game);
-    Utils.toast(`${target.name} supprimé`, 'success');
+    Utils.toast(`${player.name} supprimé`, 'success');
     this.renderCurrentGameScreen();
   },
 
@@ -1551,10 +1511,6 @@ function buildScreenHTML() {
         ✓ Valider la manche
       </button>
 
-      <div class="btn-row">
-        <button class="btn btn-secondary btn-sm" onclick="UI.addPlayerToCurrentGame()">➕ Ajouter joueur</button>
-        <button class="btn btn-secondary btn-sm" onclick="UI.removeZeroPlayerFromCurrentGame()">➖ Supprimer joueur à 0</button>
-      </div>
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
       <div class="bottom-safe"></div>
     </div>
@@ -1583,10 +1539,6 @@ function buildScreenHTML() {
 
       <div class="magic-grid" id="magic-players-grid"></div>
 
-      <div class="btn-row">
-        <button class="btn btn-secondary btn-sm" onclick="UI.addPlayerToCurrentGame()">➕ Ajouter joueur</button>
-        <button class="btn btn-secondary btn-sm" onclick="UI.removeZeroPlayerFromCurrentGame()">➖ Supprimer joueur à 0</button>
-      </div>
       <button class="btn btn-secondary btn-sm" onclick="UI.goHistory()">📋 Historique</button>
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
       <div class="bottom-safe"></div>
@@ -1666,10 +1618,6 @@ function buildScreenHTML() {
 
       <div id="generic-players" class="generic-score-players"></div>
 
-      <div class="btn-row">
-        <button class="btn btn-secondary btn-sm" onclick="UI.addPlayerToCurrentGame()">➕ Ajouter joueur</button>
-        <button class="btn btn-secondary btn-sm" onclick="UI.removeZeroPlayerFromCurrentGame()">➖ Supprimer joueur à 0</button>
-      </div>
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
       <div class="bottom-safe"></div>
     </div>
