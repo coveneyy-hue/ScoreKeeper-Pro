@@ -952,6 +952,14 @@ body {
 .stat-label { font-size: 14px; color: var(--text-secondary); }
 .stat-value { font-size: 14px; font-weight: 600; }
 
+/* ── App version ── */
+.app-version {
+  text-align: center;
+  color: var(--text-disabled);
+  font-size: 11px;
+  padding: 4px 0 0;
+}
+
 /* ── Bottom safe area ── */
 .bottom-safe { height: env(safe-area-inset-bottom, 16px); flex-shrink: 0; }
 

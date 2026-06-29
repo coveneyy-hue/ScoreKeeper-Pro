@@ -6,6 +6,8 @@
 
 'use strict';
 
+const APP_VERSION = '1.0.4';
+
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
    ================================================================ */
@@ -1070,7 +1072,7 @@ const UI = {
     const logs     = await DB.getAll('logs');
     const settings = await DB.getAll('settings');
     const data = {
-      version: '1.0.3',
+      version: APP_VERSION,
       exportedAt: new Date().toISOString(),
       games,
       logs,
@@ -1085,7 +1087,7 @@ const UI = {
     const game = State.currentGame;
     const allLogs = await DB.getLogs(game.id);
     Utils.downloadJSON({
-      version: '1.0.3',
+      version: APP_VERSION,
       exportedAt: new Date().toISOString(),
       game,
       logs: allLogs,
@@ -1281,10 +1283,9 @@ function buildScreenHTML() {
           <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Exporter tout</button>
           <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Importer</button>
         </div>
-        <div style="height:10px"></div>
-        <button class="btn btn-danger btn-sm" onclick="UI.deleteAllGamesAndHistory()">🗑️ Supprimer toutes les parties et l’historique</button>
       </div>
 
+      <div class="app-version">Version ${APP_VERSION}</div>
       <div class="bottom-safe"></div>
     </div>
 
@@ -1469,6 +1470,8 @@ function buildScreenHTML() {
           <div class="spinner"></div>
         </div>
       </div>
+
+      <button class="btn btn-danger btn-sm" onclick="UI.deleteAllGamesAndHistory()">🗑️ Supprimer toutes les parties et l’historique</button>
 
       <div class="bottom-safe"></div>
     </div>
