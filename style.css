@@ -1126,3 +1126,52 @@ body {
     flex-direction: column;
   }
 }
+
+
+.btn-danger-icon {
+  border-color: var(--danger-dim);
+  color: var(--danger);
+}
+
+.journal-danger-card {
+  background: rgba(207,102,121,0.10);
+  border: 1px solid var(--danger-dim);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.journal-danger-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--danger);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.journal-danger-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.journal-clear-btn {
+  width: auto;
+  min-width: 152px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 420px) {
+  .journal-danger-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .journal-clear-btn {
+    width: 100%;
+  }
+}

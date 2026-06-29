@@ -111,6 +111,16 @@ const DB = {
     });
   },
 
+  /** Vide complètement un store */
+  async clear(store) {
+    return new Promise((resolve, reject) => {
+      const tx  = DB.db.transaction(store, 'readwrite');
+      const req = tx.objectStore(store).clear();
+      req.onsuccess = () => resolve();
+      req.onerror   = () => reject(req.error);
+    });
+  },
+
   /** Ajoute une entrée de journal */
   async log(gameId, player, oldValue, delta, newValue, extra = {}) {
     const entry = {
@@ -725,11 +735,12 @@ const Screens = {
   },
 
   /* ─── Journal central ─── */
-  _centralLogEntriesForGame(game) {
+  _centralLogEntriesForGame(game, clearedAt = null) {
     const entries = [];
     const gameId = game?.id || '';
+    const isAfterClear = (timestamp) => !clearedAt || !timestamp || timestamp > clearedAt;
 
-    if (game?.createdAt) {
+    if (game?.createdAt && isAfterClear(game.createdAt)) {
       entries.push({
         gameId,
         game,
@@ -742,6 +753,7 @@ const Screens = {
 
     (game?.history || []).forEach(e => {
       const timestamp = e.timestamp || game.updatedAt || game.finishedAt || game.createdAt || new Date(0).toISOString();
+      if (!isAfterClear(timestamp)) return;
 
       if (game.type === 'hearts') {
         const scores = (e.scores || []).map(s => `${s.player}: ${Utils.signed(s.delta)} (${s.newValue})`).join(' · ');
@@ -785,11 +797,12 @@ const Screens = {
 
     if (!statsEl || !gamesEl || !entriesEl) return;
 
+    const clearedAt = await DB.getSetting('globalJournalClearedAt', null);
     const sortedGames = [...games].sort((a, b) => Utils.gameSortDate(b).localeCompare(Utils.gameSortDate(a)));
     const activeCount = games.filter(g => g.status === 'active').length;
     const finishedCount = games.filter(g => g.status !== 'active').length;
     const allEntries = sortedGames
-      .flatMap(g => this._centralLogEntriesForGame(g))
+      .flatMap(g => this._centralLogEntriesForGame(g, clearedAt))
       .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 
     statsEl.innerHTML = `
@@ -825,7 +838,7 @@ const Screens = {
       const isActive = game.status === 'active';
       const statusClass = isActive ? 'badge-success' : 'badge-warning';
       const statusText = isActive ? 'Active' : 'Terminée';
-      const recentEntries = this._centralLogEntriesForGame(game)
+      const recentEntries = this._centralLogEntriesForGame(game, clearedAt)
         .filter(e => e.actionType !== 'creation')
         .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
         .slice(0, 3);
@@ -1098,6 +1111,38 @@ const UI = {
 
     const screenMap = { hearts: 'hearts', magic: 'magic', fiveHundred: 'five-hundred', generic: 'generic' };
     Router.go(screenMap[game.type] || 'home');
+  },
+
+  /** Supprime toutes les entrées d'historique du journal central */
+  async clearAllGlobalHistory() {
+    const firstConfirm = confirm(
+      'Supprimer tout l\'historique de toutes les parties ?\n\nLes parties et les scores seront conservés. Les entrées du journal seront effacées.'
+    );
+    if (!firstConfirm) return;
+
+    const secondConfirm = confirm(
+      'Deuxième confirmation requise.\n\nCette action est définitive. Supprimer tout l\'historique maintenant ?'
+    );
+    if (!secondConfirm) return;
+
+    const games = await DB.getAll('games');
+    const clearedAt = new Date().toISOString();
+
+    for (const game of games) {
+      game.history = [];
+      game.journalClearedAt = clearedAt;
+      if (State.currentGame && State.currentGame.id === game.id) {
+        State.currentGame.history = [];
+        State.currentGame.journalClearedAt = clearedAt;
+      }
+      await DB.save('games', game);
+    }
+
+    await DB.clear('logs');
+    await DB.setSetting('globalJournalClearedAt', clearedAt);
+
+    Utils.toast('Historique supprimé', 'success');
+    Screens.render_global_journal();
   },
 
   /* ─── HEARTS ─── */
@@ -1627,8 +1672,17 @@ function buildScreenHTML() {
         <button class="btn-back" onclick="UI._globalJournalBack()">‹</button>
         <div class="header-title">📚 Journal central</div>
         <div class="header-actions">
+          <button class="btn-back btn-danger-icon" onclick="UI.clearAllGlobalHistory()" title="Supprimer tout l'historique">🗑️</button>
           <button class="btn-back" onclick="UI.exportData()" title="Exporter">📤</button>
         </div>
+      </div>
+
+      <div class="journal-danger-card">
+        <div>
+          <div class="journal-danger-title">Gestion du journal</div>
+          <div class="journal-danger-text">Supprime seulement l'historique. Les parties et les scores restent conservés.</div>
+        </div>
+        <button class="btn btn-danger btn-sm journal-clear-btn" onclick="UI.clearAllGlobalHistory()">🗑️ Supprimer l'historique</button>
       </div>
 
       <div class="journal-stats" id="global-journal-stats"></div>
