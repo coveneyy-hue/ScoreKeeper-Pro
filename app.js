@@ -1,5 +1,5 @@
 /**
- * ScoreKeeper Pro — app.js
+ * ScoreKeeper Pro - app.js
  * Application PWA complète : Dame de Pique, Magic, Jeu de 500, Générique
  * Architecture modulaire vanilla JS + IndexedDB
  */
@@ -147,6 +147,7 @@ const DB = {
 const State = {
   currentGame: null,   // partie active complète
   currentScreen: 'home',
+  journalBackScreen: 'home',
   deferredInstallPrompt: null,
 };
 
@@ -170,6 +171,50 @@ const Utils = {
   /** Clamp un nombre entre min et max */
   clamp: (v, min, max) => Math.min(max, Math.max(min, v)),
 
+  /** Libellé lisible d'un type de jeu */
+  gameTypeLabel(type) {
+    return {
+      hearts: '♠ Dame de Pique',
+      magic: '🔮 Magic',
+      fiveHundred: '🃏 Jeu de 500',
+      generic: '🎮 Générique',
+    }[type] || type || 'Jeu';
+  },
+
+  /** Nom court d'une partie */
+  gameTitle(game) {
+    if (!game) return 'Partie';
+    if (game.type === 'fiveHundred') {
+      return `${game.teams?.[0]?.name || 'Équipe 1'} contre ${game.teams?.[1]?.name || 'Équipe 2'}`;
+    }
+    const names = (game.players || []).map(p => p.name).filter(Boolean);
+    return names.length ? names.join(', ') : this.gameTypeLabel(game.type);
+  },
+
+  /** Résumé des scores selon le type de jeu */
+  gameScoreSummary(game) {
+    if (!game) return '';
+    if (game.type === 'hearts') {
+      const total = (game.players || []).reduce((s, p) => s + (p.score || 0), 0);
+      return `Round ${game.round || 0} · Total ${total} pts`;
+    }
+    if (game.type === 'magic') {
+      return (game.players || []).map(p => `${p.name}: ${p.life}`).join(' · ');
+    }
+    if (game.type === 'fiveHundred') {
+      return (game.teams || []).map(t => `${t.name}: ${t.score}`).join(' · ');
+    }
+    if (game.type === 'generic') {
+      return (game.players || []).map(p => `${p.name}: ${p.score}`).join(' · ');
+    }
+    return '';
+  },
+
+  /** Date utilisée pour trier une partie */
+  gameSortDate(game) {
+    return game?.updatedAt || game?.finishedAt || game?.createdAt || '1970-01-01T00:00:00.000Z';
+  },
+
   /** Échappe le HTML */
   esc(str) {
     return String(str)
@@ -177,6 +222,11 @@ const Utils = {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  },
+
+  /** Échappe une valeur utilisée dans un attribut HTML */
+  attr(str) {
+    return this.esc(str).replace(/'/g, '&#39;');
   },
 
   /** Affiche un toast temporaire */
@@ -220,7 +270,7 @@ const Router = {
 };
 
 /* ================================================================
-   SECTION 5 : TABLES DE POINTAGE — JEU DE 500
+   SECTION 5 : TABLES DE POINTAGE - JEU DE 500
    ================================================================ */
 
 const FIVE_HUNDRED_SCORES = {
@@ -277,7 +327,7 @@ const Games = {
       });
 
       game.round = round;
-      game.history.push({ round, scores: snapshot, total: newTotal });
+      game.history.push({ round, timestamp: new Date().toISOString(), scores: snapshot, total: newTotal });
       game.updatedAt = new Date().toISOString();
       return { ok: true, snapshot, round };
     },
@@ -674,6 +724,159 @@ const Screens = {
     }
   },
 
+  /* ─── Journal central ─── */
+  _centralLogEntriesForGame(game) {
+    const entries = [];
+    const gameId = game?.id || '';
+
+    if (game?.createdAt) {
+      entries.push({
+        gameId,
+        game,
+        timestamp: game.createdAt,
+        title: 'Création de partie',
+        detail: `${Utils.gameTypeLabel(game.type)} · ${Utils.gameTitle(game)}`,
+        actionType: 'creation',
+      });
+    }
+
+    (game?.history || []).forEach(e => {
+      const timestamp = e.timestamp || game.updatedAt || game.finishedAt || game.createdAt || new Date(0).toISOString();
+
+      if (game.type === 'hearts') {
+        const scores = (e.scores || []).map(s => `${s.player}: ${Utils.signed(s.delta)} (${s.newValue})`).join(' · ');
+        entries.push({
+          gameId,
+          game,
+          timestamp,
+          title: `Round ${e.round || ''}`.trim(),
+          detail: `Total ${e.total ?? ''} pts${scores ? ' · ' + scores : ''}`,
+          actionType: 'score',
+        });
+      } else if (game.type === 'fiveHundred') {
+        entries.push({
+          gameId,
+          game,
+          timestamp,
+          title: `${e.team || 'Équipe'} · ${e.contract || 'Contrat'}`,
+          detail: `${e.success ? 'Réussi' : 'Chuté'} · ${e.oldValue} ${Utils.signed(e.delta)} → ${e.newValue}`,
+          actionType: e.delta >= 0 ? 'positive' : 'negative',
+        });
+      } else {
+        entries.push({
+          gameId,
+          game,
+          timestamp,
+          title: e.player || e.team || 'Pointage',
+          detail: `${e.oldValue} ${Utils.signed(e.delta)} → ${e.newValue}`,
+          actionType: e.delta >= 0 ? 'positive' : 'negative',
+        });
+      }
+    });
+
+    return entries;
+  },
+
+  async render_global_journal() {
+    const games = await DB.getAll('games');
+    const statsEl = document.getElementById('global-journal-stats');
+    const gamesEl = document.getElementById('global-journal-games');
+    const entriesEl = document.getElementById('global-journal-entries');
+
+    if (!statsEl || !gamesEl || !entriesEl) return;
+
+    const sortedGames = [...games].sort((a, b) => Utils.gameSortDate(b).localeCompare(Utils.gameSortDate(a)));
+    const activeCount = games.filter(g => g.status === 'active').length;
+    const finishedCount = games.filter(g => g.status !== 'active').length;
+    const allEntries = sortedGames
+      .flatMap(g => this._centralLogEntriesForGame(g))
+      .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+
+    statsEl.innerHTML = `
+      <div class="journal-stat">
+        <div class="journal-stat-value">${games.length}</div>
+        <div class="journal-stat-label">Parties</div>
+      </div>
+      <div class="journal-stat">
+        <div class="journal-stat-value">${activeCount}</div>
+        <div class="journal-stat-label">Actives</div>
+      </div>
+      <div class="journal-stat">
+        <div class="journal-stat-value">${finishedCount}</div>
+        <div class="journal-stat-label">Archivées</div>
+      </div>
+      <div class="journal-stat">
+        <div class="journal-stat-value">${allEntries.length}</div>
+        <div class="journal-stat-label">Entrées</div>
+      </div>
+    `;
+
+    if (!sortedGames.length) {
+      gamesEl.innerHTML = `<div class="empty-state">
+        <div class="empty-state-icon">📚</div>
+        <div class="empty-state-text">Aucune partie journalisée</div>
+      </div>`;
+      entriesEl.innerHTML = '';
+      return;
+    }
+
+    gamesEl.innerHTML = sortedGames.map(game => {
+      const id = Utils.attr(game.id);
+      const isActive = game.status === 'active';
+      const statusClass = isActive ? 'badge-success' : 'badge-warning';
+      const statusText = isActive ? 'Active' : 'Terminée';
+      const recentEntries = this._centralLogEntriesForGame(game)
+        .filter(e => e.actionType !== 'creation')
+        .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+        .slice(0, 3);
+      const recentHtml = recentEntries.length
+        ? recentEntries.map(e => `
+          <div class="journal-mini-entry">
+            <span>${Utils.esc(e.title)}</span>
+            <small>${Utils.esc(e.detail)}</small>
+          </div>
+        `).join('')
+        : '<div class="journal-mini-empty">Aucune action de pointage encore enregistrée</div>';
+
+      return `
+        <div class="journal-game-card">
+          <div class="journal-game-top">
+            <div>
+              <div class="journal-game-type">${Utils.esc(Utils.gameTypeLabel(game.type))}</div>
+              <div class="journal-game-title">${Utils.esc(Utils.gameTitle(game))}</div>
+            </div>
+            <span class="badge ${statusClass}">${statusText}</span>
+          </div>
+          <div class="journal-game-meta">
+            Dernière activité : ${Utils.formatDate(Utils.gameSortDate(game))}
+          </div>
+          <div class="journal-game-summary">${Utils.esc(Utils.gameScoreSummary(game))}</div>
+          <div class="journal-recent-list">${recentHtml}</div>
+          <div class="journal-actions">
+            ${isActive
+              ? `<button class="btn btn-primary btn-sm" data-game-id="${id}" onclick="UI.resumeGameById(this.dataset.gameId)">Reprendre</button>
+                 <button class="btn btn-secondary btn-sm" data-game-id="${id}" onclick="UI.restartGameFromJournal(this.dataset.gameId)">Repartir à zéro</button>`
+              : `<button class="btn btn-primary btn-sm" data-game-id="${id}" onclick="UI.restartGameFromJournal(this.dataset.gameId)">Repartir</button>`}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    entriesEl.innerHTML = allEntries.slice(0, 150).map(entry => {
+      const cls = entry.actionType === 'negative' ? 'history-delta-neg' : entry.actionType === 'positive' ? 'history-delta-pos' : '';
+      return `
+        <div class="history-entry journal-entry">
+          <div class="history-header">
+            <span class="history-player">${Utils.esc(entry.title)}</span>
+            <span class="history-time">${Utils.formatDate(entry.timestamp)}</span>
+          </div>
+          <div class="history-detail ${cls}">${Utils.esc(entry.detail)}</div>
+          <div class="journal-entry-game">${Utils.esc(Utils.gameTypeLabel(entry.game.type))} · ${Utils.esc(Utils.gameTitle(entry.game))}</div>
+        </div>
+      `;
+    }).join('');
+  },
+
   /* ─── Historique ─── */
   async render_history() {
     if (!State.currentGame) return;
@@ -692,7 +895,7 @@ const Screens = {
     el.innerHTML = entries.map(e => {
       if (game.type === 'hearts') {
         return `
-          <div class="history-round-marker">— Round ${e.round} · Total ${e.total} pts —</div>
+          <div class="history-round-marker">- Round ${e.round} · Total ${e.total} pts -</div>
           ${e.scores.map(s => `
             <div class="history-entry">
               <div class="history-header">
@@ -810,9 +1013,91 @@ const UI = {
     Router.go('home');
   },
 
-  /** Va à l'écran historique */
+  /** Va au journal central */
   goHistory() {
-    Router.go('history');
+    this.goGlobalJournal();
+  },
+
+  /** Va au journal central */
+  goGlobalJournal() {
+    State.journalBackScreen = State.currentScreen === 'home' ? 'home' : State.currentScreen;
+    Router.go('global-journal');
+  },
+
+  /** Retour depuis le journal central */
+  _globalJournalBack() {
+    if (State.journalBackScreen && State.journalBackScreen !== 'home') {
+      Router.go(State.journalBackScreen);
+      return;
+    }
+    Router.go('home');
+  },
+
+  /** Recharge une partie par identifiant avant de l'ouvrir */
+  async resumeGameById(gameId) {
+    const game = await DB.get('games', gameId);
+    if (!game) {
+      Utils.toast('Partie introuvable', 'error');
+      return;
+    }
+    if (game.status !== 'active') {
+      Utils.toast('Cette partie est terminée. Utilisez Repartir pour créer une nouvelle partie.', 'info');
+      return;
+    }
+    this.resumeGame(game);
+  },
+
+  /** Crée une nouvelle partie vide à partir des mêmes joueurs ou équipes */
+  cloneFreshGame(game) {
+    if (!game) return null;
+
+    if (game.type === 'fiveHundred') {
+      const t0 = game.teams?.[0]?.name || 'Équipe 1';
+      const t1 = game.teams?.[1]?.name || 'Équipe 2';
+      const fresh = Games.fiveHundred.create(t0, t1);
+      fresh.copiedFrom = game.id;
+      return fresh;
+    }
+
+    const names = (game.players || []).map((p, i) => p.name || `Joueur ${i + 1}`);
+
+    if (game.type === 'magic') {
+      const fresh = Games.magic.create(names, game.startingLife || 20);
+      fresh.copiedFrom = game.id;
+      return fresh;
+    }
+
+    if (game.type === 'generic') {
+      const fresh = Games.generic.create(names, game.scoreLimit ?? null);
+      fresh.copiedFrom = game.id;
+      return fresh;
+    }
+
+    const fresh = Games.hearts.create(names);
+    fresh.copiedFrom = game.id;
+    return fresh;
+  },
+
+  /** Relance une partie à zéro depuis le journal central */
+  async restartGameFromJournal(gameId) {
+    const source = await DB.get('games', gameId);
+    if (!source) {
+      Utils.toast('Partie introuvable', 'error');
+      return;
+    }
+
+    const game = this.cloneFreshGame(source);
+    if (!game) {
+      Utils.toast('Impossible de relancer cette partie', 'error');
+      return;
+    }
+
+    State.currentGame = game;
+    await DB.save('games', game);
+    Utils.toast('Nouvelle partie créée à partir du journal', 'success');
+
+    const screenMap = { hearts: 'hearts', magic: 'magic', fiveHundred: 'five-hundred', generic: 'generic' };
+    Router.go(screenMap[game.type] || 'home');
   },
 
   /* ─── HEARTS ─── */
@@ -1154,6 +1439,12 @@ function buildScreenHTML() {
       </div>
 
       <div class="card">
+        <div class="card-title">Journal central</div>
+        <button class="btn btn-secondary" onclick="UI.goGlobalJournal()">📚 Ouvrir le journal central</button>
+        <div class="setting-sub" style="margin-top:8px">Toutes les parties et toutes les actions de pointage au même endroit.</div>
+      </div>
+
+      <div class="card">
         <div class="card-title">Données</div>
         <div class="btn-row">
           <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Exporter tout</button>
@@ -1327,6 +1618,35 @@ function buildScreenHTML() {
       <div id="generic-players" class="generic-score-players"></div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
+      <div class="bottom-safe"></div>
+    </div>
+
+    <!-- ══ JOURNAL CENTRAL ══ -->
+    <div class="screen" id="screen-global-journal">
+      <div class="app-header">
+        <button class="btn-back" onclick="UI._globalJournalBack()">‹</button>
+        <div class="header-title">📚 Journal central</div>
+        <div class="header-actions">
+          <button class="btn-back" onclick="UI.exportData()" title="Exporter">📤</button>
+        </div>
+      </div>
+
+      <div class="journal-stats" id="global-journal-stats"></div>
+
+      <div class="card">
+        <div class="card-title">Parties journalisées</div>
+        <div class="journal-games" id="global-journal-games">
+          <div class="spinner"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Journal consolidé</div>
+        <div class="history-list" id="global-journal-entries">
+          <div class="spinner"></div>
+        </div>
+      </div>
+
       <div class="bottom-safe"></div>
     </div>
 

@@ -994,3 +994,135 @@ body {
 @media (min-width: 420px) {
   .magic-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 }
+
+/* ── Journal central ── */
+.journal-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.journal-stat {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.journal-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.journal-stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 5px;
+}
+
+.journal-games {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.journal-game-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+
+.journal-game-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.journal-game-type {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.journal-game-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.journal-game-meta,
+.journal-game-summary,
+.journal-entry-game {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.journal-game-meta {
+  margin-top: 6px;
+}
+
+.journal-game-summary {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}
+
+.journal-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.journal-mini-entry {
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.journal-mini-entry span {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.journal-mini-entry small,
+.journal-mini-empty {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.journal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.journal-actions .btn {
+  flex: 1;
+}
+
+.journal-entry-game {
+  margin-top: 4px;
+}
+
+@media (max-width: 380px) {
+  .journal-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .journal-actions {
+    flex-direction: column;
+  }
+}
