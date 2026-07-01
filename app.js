@@ -6,8 +6,6 @@
 
 'use strict';
 
-const APP_VERSION = '1.0.10';
-
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
    ================================================================ */
@@ -113,27 +111,6 @@ const DB = {
     });
   },
 
-  /** Vide complètement un store IndexedDB */
-  async clear(store) {
-    return new Promise((resolve, reject) => {
-      const tx  = DB.db.transaction(store, 'readwrite');
-      const req = tx.objectStore(store).clear();
-      req.onsuccess = () => resolve();
-      req.onerror   = () => reject(req.error);
-    });
-  },
-
-  /** Supprime toutes les parties et toutes les entrées de journal */
-  async clearGamesAndLogs() {
-    return new Promise((resolve, reject) => {
-      const tx = DB.db.transaction(['games', 'logs'], 'readwrite');
-      tx.objectStore('logs').clear();
-      tx.objectStore('games').clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
   /** Ajoute une entrée de journal */
   async log(gameId, player, oldValue, delta, newValue, extra = {}) {
     const entry = {
@@ -187,14 +164,14 @@ const Utils = {
     return d.toLocaleDateString('fr-CA') + ' ' + d.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
   },
 
-  /** Retourne le nom d'affichage d'une partie */
-  gameTitle(game, fallback) {
-    const name = String(game?.name || '').trim();
-    return name ? name : fallback;
-  },
-
   /** Formate un nombre signé */
   signed(n) { return n > 0 ? `+${n}` : `${n}`; },
+
+  /** Convertit une saisie utilisateur en nombre entier sécuritaire */
+  parseIntSafe(value, fallback = 0) {
+    const n = parseInt(String(value).trim(), 10);
+    return Number.isFinite(n) ? n : fallback;
+  },
 
   /** Clamp un nombre entre min et max */
   clamp: (v, min, max) => Math.min(max, Math.max(min, v)),
@@ -216,14 +193,6 @@ const Utils = {
     el.textContent = msg;
     container.appendChild(el);
     setTimeout(() => { el.remove(); }, duration);
-  },
-
-  /** Nettoie une valeur pour un nom de fichier */
-  fileSafeName(value) {
-    return String(value || 'partie')
-      .trim()
-      .replace(/[^a-z0-9À-ÿ_-]+/gi, '-')
-      .replace(/^-+|-+$/g, '') || 'partie';
   },
 
   /** Exporte les données en JSON et propose le téléchargement */
@@ -285,7 +254,6 @@ const Games = {
     create(players) {
       return {
         id: Utils.uid(),
-        name: '',
         type: 'hearts',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -331,7 +299,6 @@ const Games = {
     create(players, startingLife = 20) {
       return {
         id: Utils.uid(),
-        name: '',
         type: 'magic',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -376,7 +343,6 @@ const Games = {
     create(team0Name, team1Name) {
       return {
         id: Utils.uid(),
-        name: '',
         type: 'fiveHundred',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -422,7 +388,6 @@ const Games = {
     create(players, scoreLimit = null) {
       return {
         id: Utils.uid(),
-        name: '',
         type: 'generic',
         status: 'active',
         createdAt: new Date().toISOString(),
@@ -478,13 +443,11 @@ const Screens = {
     if (active.length > 0) {
       const g = active[0];
       const typeLabel = { hearts: '♠ Dame de Pique', magic: '🔮 Magic', fiveHundred: '🃏 Jeu de 500', generic: '🎮 Générique' };
-      const title = Utils.gameTitle(g, typeLabel[g.type] || g.type);
-      const subtitle = g.name ? `${typeLabel[g.type] || g.type} · ${Utils.formatDate(g.updatedAt)}` : `${Utils.formatDate(g.updatedAt)}`;
       banner.innerHTML = `
         <div class="resume-banner-icon">▶️</div>
         <div class="resume-banner-text">
-          <div class="resume-banner-title">${Utils.esc(title)}</div>
-          <div class="resume-banner-sub">${Utils.esc(subtitle)}</div>
+          <div class="resume-banner-title">Reprendre la partie</div>
+          <div class="resume-banner-sub">${Utils.esc(typeLabel[g.type] || g.type)} · ${Utils.formatDate(g.updatedAt)}</div>
         </div>
         <div class="resume-banner-arrow">›</div>
       `;
@@ -518,19 +481,8 @@ const Screens = {
     const container = document.getElementById('new-game-options');
     container.innerHTML = '';
 
-    const commonOptionsHtml = `
-      <div class="card">
-        <div class="card-title">Identification</div>
-        <div class="form-group">
-          <label class="form-label">Nom de la partie <span style="font-weight:400;color:var(--text-secondary)">(optionnel)</span></label>
-          <input class="form-input" id="game-display-name" type="text" placeholder="Ex. Soirée chalet, Finale, Partie rapide" maxlength="40">
-        </div>
-      </div>
-    `;
-
     if (type === 'fiveHundred') {
       container.innerHTML = `
-        ${commonOptionsHtml}
         <div class="card">
           <div class="card-title">Noms des équipes</div>
           <div class="form-group">
@@ -571,7 +523,6 @@ const Screens = {
       }
 
       container.innerHTML = `
-        ${commonOptionsHtml}
         ${extraHtml}
         <div class="card">
           <div class="card-title">Joueurs</div>
@@ -611,7 +562,6 @@ const Screens = {
   render_hearts(data) {
     if (!State.currentGame || State.currentGame.type !== 'hearts') return;
     const game = State.currentGame;
-    document.querySelector('#screen-hearts .header-title').textContent = Utils.gameTitle(game, '♠ Dame de Pique');
 
     document.getElementById('hearts-round-num').textContent  = `Round ${game.round}`;
     document.getElementById('hearts-total-val').textContent  = game.players.reduce((s,p) => s+p.score, 0);
@@ -624,7 +574,6 @@ const Screens = {
       <div class="score-row ${p.score === minScore ? 'leader' : ''}">
         <div class="score-player-name">${Utils.esc(p.name)}</div>
         <div class="score-value">${p.score}</div>
-        <button class="player-delete-btn" onclick="UI.removePlayerFromCurrentGame(${i})" title="Supprimer ${Utils.esc(p.name)}" aria-label="Supprimer ${Utils.esc(p.name)}">🗑️</button>
       </div>
     `).join('');
 
@@ -649,7 +598,6 @@ const Screens = {
   render_magic() {
     if (!State.currentGame || State.currentGame.type !== 'magic') return;
     const game = State.currentGame;
-    document.querySelector('#screen-magic .header-title').textContent = Utils.gameTitle(game, '🔮 Magic: The Gathering');
 
     const grid = document.getElementById('magic-players-grid');
     grid.innerHTML = game.players.map((p, i) => {
@@ -658,7 +606,6 @@ const Screens = {
       return `
         <div class="magic-player-card ${p.dead ? 'dead' : ''}" id="magic-card-${i}">
           ${p.dead ? '<div class="magic-dead-overlay">💀</div>' : ''}
-          <button class="player-delete-btn player-delete-btn-corner" onclick="UI.removePlayerFromCurrentGame(${i})" title="Supprimer ${Utils.esc(p.name)}" aria-label="Supprimer ${Utils.esc(p.name)}">🗑️</button>
           <div class="magic-player-name">${Utils.esc(p.name)}</div>
           <div class="magic-hp ${hpClass}" id="magic-hp-${i}">${p.life}</div>
           <div class="magic-controls">
@@ -675,7 +622,6 @@ const Screens = {
   render_five_hundred() {
     if (!State.currentGame || State.currentGame.type !== 'fiveHundred') return;
     const game = State.currentGame;
-    document.querySelector('#screen-five-hundred .header-title').textContent = Utils.gameTitle(game, '🃏 Jeu de 500');
 
     // Scores des équipes
     const teamsEl = document.getElementById('fh-teams');
@@ -705,7 +651,6 @@ const Screens = {
   render_generic() {
     if (!State.currentGame || State.currentGame.type !== 'generic') return;
     const game = State.currentGame;
-    document.querySelector('#screen-generic .header-title').textContent = Utils.gameTitle(game, '🎮 Jeu Générique');
 
     const container = document.getElementById('generic-players');
     const winner = game.players.find(p => game.scoreLimit && p.score >= game.scoreLimit);
@@ -716,10 +661,7 @@ const Screens = {
             <span class="name">${Utils.esc(p.name)}</span>
             <span class="score ${p.score < 0 ? 'negative' : ''}" id="generic-score-${i}">${p.score}</span>
           </div>
-          <div class="generic-player-actions">
-            ${game.scoreLimit ? `<span class="badge badge-accent">${game.scoreLimit} pts</span>` : ''}
-            <button class="player-delete-btn" onclick="UI.removePlayerFromCurrentGame(${i})" title="Supprimer ${Utils.esc(p.name)}" aria-label="Supprimer ${Utils.esc(p.name)}">🗑️</button>
-          </div>
+          ${game.scoreLimit ? `<span class="badge badge-accent">${game.scoreLimit} pts</span>` : ''}
         </div>
         <div class="generic-input-row">
           <input class="generic-delta-input" type="number" id="generic-delta-${i}"
@@ -727,7 +669,6 @@ const Screens = {
           <button class="btn btn-success btn-icon" onclick="UI.genericApply(${i}, 1)">+</button>
           <button class="btn btn-danger  btn-icon" onclick="UI.genericApply(${i}, -1)">−</button>
         </div>
-        <div class="generic-visible-delta" id="generic-visible-delta-${i}"></div>
       </div>
     `).join('');
 
@@ -739,70 +680,16 @@ const Screens = {
     }
   },
 
-  /* ─── Journal central ─── */
-  async render_central_journal() {
-    const games = await DB.getAll('games');
-    const logs = await DB.getAll('logs');
-    const el = document.getElementById('central-journal-list');
-    const statsEl = document.getElementById('central-journal-stats');
-
-    const sorted = [...games].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
-    const activeCount = sorted.filter(g => g.status === 'active').length;
-    const finishedCount = sorted.filter(g => g.status === 'finished').length;
-
-    if (statsEl) {
-      statsEl.innerHTML = `
-        <div class="stat-row"><span class="stat-label">Parties actives</span><span class="stat-value">${activeCount}</span></div>
-        <div class="stat-row"><span class="stat-label">Parties archivées</span><span class="stat-value">${finishedCount}</span></div>
-        <div class="stat-row"><span class="stat-label">Total des parties</span><span class="stat-value">${sorted.length}</span></div>
-        <div class="stat-row"><span class="stat-label">Entrées techniques</span><span class="stat-value">${logs.length}</span></div>
-      `;
-    }
-
-    if (!el) return;
-    if (!sorted.length) {
-      el.innerHTML = `<div class="empty-state">
-        <div class="empty-state-icon">📋</div>
-        <div class="empty-state-text">Aucune partie enregistrée</div>
-      </div>`;
-      return;
-    }
-
-    const typeLabel = {
-      hearts: '♠ Dame de Pique',
-      magic: '🔮 Magic',
-      fiveHundred: '🃏 Jeu de 500',
-      generic: '🎮 Générique'
-    };
-
-    el.innerHTML = sorted.map(g => {
-      const title = g.name && g.name.trim() ? g.name.trim() : (typeLabel[g.type] || g.type || 'Partie');
-      const type = typeLabel[g.type] || g.type || 'Type inconnu';
-      const status = g.status === 'active' ? 'Active' : 'Archivée';
-      const badgeClass = g.status === 'active' ? 'badge-success' : 'badge-accent';
-      const historyCount = Array.isArray(g.history) ? g.history.length : 0;
-      return `
-        <div class="history-entry" onclick="UI.resumeGameById('${Utils.esc(g.id)}')">
-          <div class="history-header">
-            <span class="history-player">${Utils.esc(title)}</span>
-            <span class="badge ${badgeClass}">${status}</span>
-          </div>
-          <div class="history-detail">
-            ${Utils.esc(type)} · ${historyCount} action(s) · ${Utils.formatDate(g.updatedAt || g.createdAt)}
-          </div>
-        </div>
-      `;
-    }).join('');
-  },
-
   /* ─── Historique ─── */
   async render_history() {
     if (!State.currentGame) return;
     const game = State.currentGame;
-    document.querySelector('#screen-history .header-title').textContent = Utils.gameTitle(game, '📋 Historique');
     const el   = document.getElementById('history-list');
 
-    const entries = [...game.history].reverse();
+    const entries = game.history
+      .map((entry, index) => ({ entry, index }))
+      .reverse();
+
     if (!entries.length) {
       el.innerHTML = `<div class="empty-state">
         <div class="empty-state-icon">📋</div>
@@ -811,10 +698,13 @@ const Screens = {
       return;
     }
 
-    el.innerHTML = entries.map(e => {
+    el.innerHTML = entries.map(({ entry: e, index }) => {
       if (game.type === 'hearts') {
         return `
-          <div class="history-round-marker">— Round ${e.round} · Total ${e.total} pts —</div>
+          <div class="history-round-marker">
+            <span>— Round ${e.round} · Total ${e.total} pts —</span>
+            <button class="history-edit-btn" onclick="UI.editHistoryEntry(${index})" title="Modifier ce round">✏️</button>
+          </div>
           ${e.scores.map(s => `
             <div class="history-entry">
               <div class="history-header">
@@ -838,6 +728,9 @@ const Screens = {
               ${e.oldValue} <span class="${e.delta >= 0 ? 'history-delta-pos' : 'history-delta-neg'}">${Utils.signed(e.delta)}</span> → ${e.newValue}
               (${e.success ? '✅ Réussi' : '❌ Chuté'})
             </div>
+            <div class="history-actions">
+              <button class="history-edit-btn" onclick="UI.editHistoryEntry(${index})">✏️ Modifier</button>
+            </div>
           </div>
         `;
       } else {
@@ -849,6 +742,9 @@ const Screens = {
             </div>
             <div class="history-detail">
               ${e.oldValue} <span class="${e.delta >= 0 ? 'history-delta-pos' : 'history-delta-neg'}">${Utils.signed(e.delta)}</span> → ${e.newValue}
+            </div>
+            <div class="history-actions">
+              <button class="history-edit-btn" onclick="UI.editHistoryEntry(${index})">✏️ Modifier</button>
             </div>
           </div>
         `;
@@ -865,23 +761,6 @@ const UI = {
   _magicDelta: 1,       // valeur par défaut pour +/- en Magic
   _selectedContract: null,  // contrat sélectionné en jeu de 500
   _selectedTeam: null,      // équipe sélectionnée en jeu de 500
-  _visibleDeltas: {},       // cumul temporaire affiché sous un joueur
-  _visibleDeltaTimers: {},  // minuteurs de remise à zéro des cumuls visibles
-
-  _showAccumulatedDelta(key, el, delta) {
-    if (!el) return;
-    UI._visibleDeltas[key] = (UI._visibleDeltas[key] || 0) + delta;
-    const total = UI._visibleDeltas[key];
-    el.textContent = Utils.signed(total);
-    el.style.color = total > 0 ? 'var(--success)' : total < 0 ? 'var(--danger)' : 'var(--text-secondary)';
-
-    if (UI._visibleDeltaTimers[key]) clearTimeout(UI._visibleDeltaTimers[key]);
-    UI._visibleDeltaTimers[key] = setTimeout(() => {
-      UI._visibleDeltas[key] = 0;
-      el.textContent = '';
-      delete UI._visibleDeltaTimers[key];
-    }, 10000);
-  },
 
   /** Démarre la création d'une partie */
   startNewGame(type) {
@@ -903,7 +782,6 @@ const UI = {
   /** Crée la partie à partir du formulaire */
   async createGame() {
     const type = document.getElementById('new-game-type').value;
-    const gameName = document.getElementById('game-display-name')?.value.trim() || '';
 
     try {
       let game;
@@ -932,7 +810,6 @@ const UI = {
         }
       }
 
-      game.name = gameName;
       State.currentGame = game;
       await DB.save('games', game);
       Utils.toast('Partie créée !', 'success');
@@ -946,77 +823,6 @@ const UI = {
     }
   },
 
-  /** Démarre immédiatement avec les joueurs standards */
-  async quickStartGame() {
-    const type = document.getElementById('new-game-type').value;
-    const gameName = document.getElementById('game-display-name')?.value.trim() || '';
-    const quickPlayers = ['Yannick', 'Victor', 'Julie', 'Lily'];
-
-    try {
-      let game;
-
-      if (type === 'fiveHundred') {
-        game = Games.fiveHundred.create('Yannick / Victor', 'Julie / Lily');
-      } else if (type === 'magic') {
-        const life = parseInt(document.getElementById('magic-start-life')?.value || '20', 10);
-        game = Games.magic.create(quickPlayers, life);
-        localStorage.setItem('savedPlayerNames', JSON.stringify(quickPlayers));
-      } else if (type === 'generic') {
-        const limitVal = parseInt(document.getElementById('score-limit')?.value || '0', 10) || 0;
-        game = Games.generic.create(quickPlayers, limitVal > 0 ? limitVal : null);
-        localStorage.setItem('savedPlayerNames', JSON.stringify(quickPlayers));
-      } else {
-        game = Games.hearts.create(quickPlayers);
-        localStorage.setItem('savedPlayerNames', JSON.stringify(quickPlayers));
-      }
-
-      game.name = gameName;
-      State.currentGame = game;
-      await DB.save('games', game);
-      Utils.toast('Partie rapide créée !', 'success');
-
-      const screenMap = { hearts: 'hearts', magic: 'magic', fiveHundred: 'five-hundred', generic: 'generic' };
-      Router.go(screenMap[type] || 'home');
-    } catch (err) {
-      console.error(err);
-      Utils.toast('Erreur lors du démarrage rapide', 'error');
-    }
-  },
-
-  /** Supprime un joueur de la partie active après confirmation */
-  async removePlayerFromCurrentGame(playerIdx) {
-    const game = State.currentGame;
-    if (!game) return;
-    if (!['hearts', 'magic', 'generic'].includes(game.type)) {
-      Utils.toast('Suppression de joueur non disponible pour ce type de partie', 'error');
-      return;
-    }
-    if (!game.players || !game.players[playerIdx]) return;
-
-    const player = game.players[playerIdx];
-    const confirmed = confirm(`Supprimer ${player.name} de la partie ?`);
-    if (!confirmed) return;
-
-    game.players.splice(playerIdx, 1);
-    game.updatedAt = new Date().toISOString();
-    await DB.save('games', game);
-    Utils.toast(`${player.name} supprimé`, 'success');
-    this.renderCurrentGameScreen();
-  },
-
-  /** Rafraîchit l'écran de la partie active */
-  renderCurrentGameScreen() {
-    const game = State.currentGame;
-    if (!game) return;
-    const screenMap = {
-      hearts: 'hearts',
-      magic: 'magic',
-      fiveHundred: 'five-hundred',
-      generic: 'generic',
-    };
-    Screens.render(screenMap[game.type] || State.currentScreen, {});
-  },
-
   /** Retour à l'accueil */
   goHome() {
     Router.go('home');
@@ -1025,22 +831,6 @@ const UI = {
   /** Va à l'écran historique */
   goHistory() {
     Router.go('history');
-  },
-
-  /** Va au journal central */
-  goCentralJournal() {
-    State.currentGame = null;
-    Router.go('central-journal');
-  },
-
-  /** Reprend une partie depuis son identifiant */
-  async resumeGameById(gameId) {
-    const game = await DB.get('games', gameId);
-    if (!game) {
-      Utils.toast('Partie introuvable', 'error');
-      return;
-    }
-    UI.resumeGame(game);
   },
 
   /* ─── HEARTS ─── */
@@ -1106,10 +896,14 @@ const UI = {
       hpEl.className = `magic-hp ${pct > 0.5 ? 'high' : pct > 0.25 ? 'mid' : 'low'}`;
       card.className  = `magic-player-card ${p.dead ? 'dead' : ''}`;
 
-      // Delta cumulé temporaire : plusieurs clics successifs s'additionnent visuellement.
+      // Delta flash
       const dEl = document.getElementById(`magic-delta-${playerIdx}`);
-      const actualDelta = result.newValue - result.old;
-      UI._showAccumulatedDelta(`magic-${game.id}-${playerIdx}`, dEl, actualDelta);
+      if (dEl) {
+        const actualDelta = result.newValue - result.old;
+        dEl.textContent = Utils.signed(actualDelta);
+        dEl.style.color = actualDelta > 0 ? 'var(--success)' : 'var(--danger)';
+        setTimeout(() => { dEl.textContent = ''; }, 1500);
+      }
     }
 
     // Vérifier s'il reste un seul joueur vivant
@@ -1219,9 +1013,6 @@ const UI = {
       scoreEl.className   = `score ${result.newValue < 0 ? 'negative' : ''}`;
     }
 
-    const dEl = document.getElementById(`generic-visible-delta-${playerIdx}`);
-    UI._showAccumulatedDelta(`generic-${game.id}-${playerIdx}`, dEl, delta);
-
     Utils.toast(`${game.players[playerIdx].name} : ${Utils.signed(delta)} pts`, 'success');
     deltaInput.value = 0;
 
@@ -1231,67 +1022,198 @@ const UI = {
     }
   },
 
+  /* ─── CORRECTION MANUELLE DE L'HISTORIQUE ─── */
+  async editHistoryEntry(historyIndex) {
+    const game = State.currentGame;
+    if (!game || !Array.isArray(game.history) || !game.history[historyIndex]) return;
+
+    if (game.type === 'hearts') {
+      await this.editHeartsRound(historyIndex);
+      return;
+    }
+
+    if (game.type === 'fiveHundred') {
+      await this.editFiveHundredEntry(historyIndex);
+      return;
+    }
+
+    await this.editSimpleScoreEntry(historyIndex);
+  },
+
+  async editHeartsRound(historyIndex) {
+    const game = State.currentGame;
+    const entry = game.history[historyIndex];
+    const values = [];
+
+    for (let i = 0; i < entry.scores.length; i++) {
+      const s = entry.scores[i];
+      const raw = prompt(`Round ${entry.round} — ${s.player}\nPoints corrigés pour ce round :`, s.delta);
+      if (raw === null) return;
+      const val = Utils.parseIntSafe(raw, NaN);
+      if (!Number.isFinite(val) || val < 0) {
+        Utils.toast('Valeur invalide', 'error');
+        return;
+      }
+      values.push(val);
+    }
+
+    const total = values.reduce((sum, n) => sum + n, 0);
+    if (total !== 25) {
+      Utils.toast(`Le total du round doit être 25 pts. Total saisi : ${total}`, 'error', 4500);
+      return;
+    }
+
+    entry.scores.forEach((score, i) => {
+      score.delta = values[i];
+    });
+
+    this.recalculateCurrentGameFromHistory();
+    await DB.save('games', game);
+    Utils.toast(`Round ${entry.round} corrigé`, 'success');
+    Screens.render_history();
+  },
+
+  async editFiveHundredEntry(historyIndex) {
+    const game = State.currentGame;
+    const entry = game.history[historyIndex];
+    const current = entry.delta || 0;
+    const raw = prompt(
+      `${entry.team} · ${entry.contract}\nEntrez la variation corrigée pour cette main.\nExemples : 320 ou -320`,
+      current
+    );
+    if (raw === null) return;
+
+    const delta = Utils.parseIntSafe(raw, NaN);
+    if (!Number.isFinite(delta)) {
+      Utils.toast('Valeur invalide', 'error');
+      return;
+    }
+
+    entry.delta = delta;
+    entry.points = Math.abs(delta);
+    entry.success = delta >= 0;
+
+    this.recalculateCurrentGameFromHistory();
+    await DB.save('games', game);
+    Utils.toast('Main corrigée', 'success');
+    Screens.render_history();
+  },
+
+  async editSimpleScoreEntry(historyIndex) {
+    const game = State.currentGame;
+    const entry = game.history[historyIndex];
+    const label = entry.player || entry.team || 'Entrée';
+    const raw = prompt(
+      `${label}\nEntrez la variation corrigée.\nExemples : 5 ou -5`,
+      entry.delta || 0
+    );
+    if (raw === null) return;
+
+    const delta = Utils.parseIntSafe(raw, NaN);
+    if (!Number.isFinite(delta)) {
+      Utils.toast('Valeur invalide', 'error');
+      return;
+    }
+
+    entry.delta = delta;
+    this.recalculateCurrentGameFromHistory();
+    await DB.save('games', game);
+    Utils.toast('Pointage corrigé', 'success');
+    Screens.render_history();
+  },
+
+  recalculateCurrentGameFromHistory() {
+    const game = State.currentGame;
+    if (!game) return;
+
+    if (game.type === 'hearts') {
+      game.players.forEach(p => { p.score = 0; });
+      game.history.forEach((entry, idx) => {
+        entry.round = idx + 1;
+        entry.scores.forEach(score => {
+          const player = game.players.find(p => p.name === score.player);
+          if (!player) return;
+          score.oldValue = player.score;
+          player.score += Utils.parseIntSafe(score.delta, 0);
+          score.newValue = player.score;
+        });
+        entry.total = game.players.reduce((sum, p) => sum + p.score, 0);
+      });
+      game.round = game.history.length;
+    }
+
+    if (game.type === 'magic') {
+      game.players.forEach(p => {
+        p.life = game.startingLife;
+        p.dead = false;
+      });
+      game.history.forEach(entry => {
+        const player = game.players.find(p => p.name === entry.player);
+        if (!player) return;
+        entry.oldValue = player.life;
+        player.life += Utils.parseIntSafe(entry.delta, 0);
+        if (player.life <= 0) {
+          player.dead = true;
+          player.life = Math.min(player.life, 0);
+        } else {
+          player.dead = false;
+        }
+        entry.newValue = player.life;
+      });
+    }
+
+    if (game.type === 'fiveHundred') {
+      game.teams.forEach(t => { t.score = 0; });
+      game.history.forEach(entry => {
+        const team = game.teams.find(t => t.name === entry.team);
+        if (!team) return;
+        entry.oldValue = team.score;
+        team.score += Utils.parseIntSafe(entry.delta, 0);
+        entry.newValue = team.score;
+        entry.points = Math.abs(Utils.parseIntSafe(entry.delta, 0));
+        entry.success = Utils.parseIntSafe(entry.delta, 0) >= 0;
+      });
+      game.status = game.teams.some(t => t.score >= 1000) ? 'finished' : 'active';
+    }
+
+    if (game.type === 'generic') {
+      game.players.forEach(p => { p.score = 0; });
+      game.history.forEach(entry => {
+        const player = game.players.find(p => p.name === entry.player);
+        if (!player) return;
+        entry.oldValue = player.score;
+        player.score += Utils.parseIntSafe(entry.delta, 0);
+        entry.newValue = player.score;
+      });
+      game.status = game.scoreLimit !== null && game.players.some(p => p.score >= game.scoreLimit) ? 'finished' : 'active';
+    }
+
+    game.updatedAt = new Date().toISOString();
+  },
+
   /* ─── EXPORT / IMPORT ─── */
   async exportData() {
     const games    = await DB.getAll('games');
-    const logs     = await DB.getAll('logs');
     const settings = await DB.getAll('settings');
     const data = {
-      version: APP_VERSION,
+      version: '1.0.0',
       exportedAt: new Date().toISOString(),
       games,
-      logs,
       settings,
     };
     Utils.downloadJSON(data, `scorekeeper-${new Date().toISOString().slice(0,10)}.json`);
-    Utils.toast(`Export réussi : ${games.length} partie(s), ${logs.length} entrée(s)`, 'success');
+    Utils.toast('Export réussi !', 'success');
   },
 
   async exportCurrentGame() {
     if (!State.currentGame) return;
     const game = State.currentGame;
-    const allLogs = await DB.getLogs(game.id);
     Utils.downloadJSON({
-      version: APP_VERSION,
+      version: '1.0.0',
       exportedAt: new Date().toISOString(),
       game,
-      logs: allLogs,
-    }, `partie-${Utils.fileSafeName(game.name || game.type)}-${new Date().toISOString().slice(0,10)}.json`);
-    Utils.toast('Partie exportée avec son historique !', 'success');
-  },
-
-  async importBackupData(data) {
-    let gamesImported = 0;
-    let logsImported = 0;
-    let settingsImported = 0;
-
-    if (data.game) {
-      await DB.save('games', data.game);
-      gamesImported = 1;
-    }
-
-    if (Array.isArray(data.games)) {
-      for (const g of data.games) {
-        await DB.save('games', g);
-        gamesImported++;
-      }
-    }
-
-    if (Array.isArray(data.logs)) {
-      for (const log of data.logs) {
-        await DB.save('logs', log);
-        logsImported++;
-      }
-    }
-
-    if (Array.isArray(data.settings)) {
-      for (const setting of data.settings) {
-        await DB.save('settings', setting);
-        settingsImported++;
-      }
-    }
-
-    return { gamesImported, logsImported, settingsImported };
+    }, `partie-${game.type}-${new Date().toISOString().slice(0,10)}.json`);
+    Utils.toast('Partie exportée !', 'success');
   },
 
   importData() {
@@ -1305,56 +1227,22 @@ const UI = {
         const text = await file.text();
         const data = JSON.parse(text);
 
-        if (!data.game && !Array.isArray(data.games)) {
-          Utils.toast('Fichier invalide : aucune partie trouvée', 'error');
-          return;
-        }
-
-        const result = await UI.importBackupData(data);
-        Utils.toast(
-          `Import réussi : ${result.gamesImported} partie(s), ${result.logsImported} entrée(s)`,
-          'success'
-        );
-
-        if (State.currentScreen === 'central-journal' && typeof Screens.render_central_journal === 'function') {
-          await Screens.render_central_journal();
-        } else {
+        if (data.game) {
+          // Import d'une seule partie
+          await DB.save('games', data.game);
+          Utils.toast('Partie importée !', 'success');
+          await Screens.render_home();
+        } else if (data.games) {
+          // Import complet
+          for (const g of data.games) await DB.save('games', g);
+          Utils.toast(`${data.games.length} partie(s) importée(s) !`, 'success');
           await Screens.render_home();
         }
       } catch (err) {
-        console.error(err);
-        Utils.toast('Fichier invalide ou import impossible', 'error');
+        Utils.toast('Fichier invalide', 'error');
       }
     };
     input.click();
-  },
-
-  /* ─── SUPPRESSION COMPLÈTE DU JOURNAL CENTRAL ─── */
-  async deleteAllGamesAndHistory() {
-    const confirmed1 = confirm(
-      'Supprimer tout le journal central ? Toutes les parties actives, archivées et toutes les entrées seront supprimées.'
-    );
-    if (!confirmed1) return;
-
-    const confirmed2 = confirm(
-      'Confirmation finale : cette action est irréversible. Supprimer définitivement toutes les parties et tout l’historique ?'
-    );
-    if (!confirmed2) return;
-
-    try {
-      await DB.clearGamesAndLogs();
-      State.currentGame = null;
-      Utils.toast('Journal central supprimé complètement', 'success');
-
-      if (typeof Screens.render_central_journal === 'function') {
-        Screens.render_central_journal();
-      } else {
-        Router.go('home');
-      }
-    } catch (err) {
-      console.error(err);
-      Utils.toast('Erreur pendant la suppression', 'error');
-    }
   },
 
   /* ─── FIN DE PARTIE ─── */
@@ -1442,16 +1330,14 @@ function buildScreenHTML() {
         </div>
       </div>
 
-      <div class="card home-data-card">
+      <div class="card">
         <div class="card-title">Données</div>
-        <div class="home-data-actions">
-          <button class="home-data-btn" onclick="UI.goCentralJournal()" title="Journal central" aria-label="Journal central">📋</button>
-          <button class="home-data-btn" onclick="UI.exportData()" title="Exporter tout" aria-label="Exporter tout">📤</button>
-          <button class="home-data-btn" onclick="UI.importData()" title="Importer" aria-label="Importer">📥</button>
+        <div class="btn-row">
+          <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Exporter tout</button>
+          <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Importer</button>
         </div>
       </div>
 
-      <div class="app-version">Version ${APP_VERSION}</div>
       <div class="bottom-safe"></div>
     </div>
 
@@ -1466,7 +1352,6 @@ function buildScreenHTML() {
       <div id="new-game-options"></div>
 
       <button class="btn btn-primary" onclick="UI.createGame()">▶ Démarrer la partie</button>
-      <button class="btn btn-success" onclick="UI.quickStartGame()">⚡ Démarrer rapidement</button>
       <div class="bottom-safe"></div>
     </div>
 
@@ -1619,30 +1504,6 @@ function buildScreenHTML() {
       <div id="generic-players" class="generic-score-players"></div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
-      <div class="bottom-safe"></div>
-    </div>
-
-    <!-- ══ JOURNAL CENTRAL ══ -->
-    <div class="screen" id="screen-central-journal">
-      <div class="app-header">
-        <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title">📋 Journal central</div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Résumé</div>
-        <div id="central-journal-stats"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Parties enregistrées</div>
-        <div class="history-list" id="central-journal-list">
-          <div class="spinner"></div>
-        </div>
-      </div>
-
-      <button class="btn btn-danger btn-sm" onclick="UI.deleteAllGamesAndHistory()">🗑️ Supprimer toutes les parties et l’historique</button>
-
       <div class="bottom-safe"></div>
     </div>
 

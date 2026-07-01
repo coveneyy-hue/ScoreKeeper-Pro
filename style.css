@@ -739,45 +739,6 @@ body {
 }
 .generic-delta-input:focus { outline: none; border-color: var(--accent); }
 
-.generic-visible-delta {
-  min-height: 18px;
-  margin-top: 6px;
-  text-align: right;
-  font-size: 13px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-
-/* Bouton de suppression par joueur */
-.player-delete-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--danger);
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 16px;
-  flex-shrink: 0;
-}
-.player-delete-btn:active {
-  background: var(--danger-dim);
-}
-.player-delete-btn-corner {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-}
-.generic-player-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 /* ── History Log ── */
 .history-list {
   display: flex;
@@ -991,14 +952,6 @@ body {
 .stat-label { font-size: 14px; color: var(--text-secondary); }
 .stat-value { font-size: 14px; font-weight: 600; }
 
-/* ── App version ── */
-.app-version {
-  text-align: center;
-  color: var(--text-disabled);
-  font-size: 11px;
-  padding: 4px 0 0;
-}
-
 /* ── Bottom safe area ── */
 .bottom-safe { height: env(safe-area-inset-bottom, 16px); flex-shrink: 0; }
 
@@ -1042,25 +995,31 @@ body {
   .magic-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 }
 
-/* ── Accueil : actions données en icônes seulement ── */
-.home-data-card { padding-bottom: 14px; }
-.home-data-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-}
-.home-data-btn {
-  width: 56px;
-  height: 48px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: 22px;
+/* ── Modification manuelle de l'historique ── */
+.history-round-marker {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: transform var(--transition), background var(--transition), opacity var(--transition);
+  gap: 8px;
+  flex-wrap: wrap;
 }
-.home-data-btn:active { transform: scale(0.95); opacity: 0.85; }
+.history-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.history-edit-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.history-edit-btn:active {
+  background: var(--bg-elevated);
+  color: var(--accent);
+}
