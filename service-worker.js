@@ -1,72 +1,74 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * Gestion du cache pour le fonctionnement hors ligne
+ * v1.2.8 : mise à jour PWA renforcée pour Android/Chrome
  */
 
-const CACHE_NAME = 'scorekeeper-v1.2.7';
+const CACHE_NAME = 'scorekeeper-v1.2.8';
 const ASSETS_TO_CACHE = [
-  './',
   './index.html',
-  './style.css',
-  './app.js',
+  './style.css?v=1.2.8',
+  './app.js?v=1.2.8',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
 ];
 
-// Installation : mise en cache de tous les assets
+// Installation : forcer le téléchargement réseau des fichiers de cette version.
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installation en cours...');
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Mise en cache des assets');
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => {
-      console.log('[SW] Installation terminée');
-      return self.skipWaiting();
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(
+        ASSETS_TO_CACHE.map((url) => new Request(url, { cache: 'reload' }))
+      ))
+      .then(() => self.skipWaiting())
   );
 });
 
-// Activation : suppression des anciens caches
+// Activation : supprimer tous les anciens caches puis prendre le contrôle immédiatement.
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activation en cours...');
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys()
+      .then((cacheNames) => Promise.all(
         cacheNames
-          .filter(name => name !== CACHE_NAME)
-          .map(name => {
-            console.log('[SW] Suppression du cache:', name);
-            return caches.delete(name);
-          })
-      );
-    }).then(() => {
-      console.log('[SW] Activation terminée');
-      return self.clients.claim();
-    })
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// Interception des requêtes : stratégie Cache First
 self.addEventListener('fetch', (event) => {
+  const request = event.request;
+
+  // Pour une navigation, préférer le réseau afin de détecter une nouvelle version
+  // dès le prochain lancement. Hors ligne, revenir à index.html en cache.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' })
+        .then((response) => {
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
+  // Les ressources versionnées peuvent rester Cache First.
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((response) => {
+    caches.match(request).then((cachedResponse) => {
+      if (cachedResponse) return cachedResponse;
+
+      return fetch(request).then((response) => {
         if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
         }
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         return response;
-      }).catch(() => {
-        // Retourner la page d'accueil si hors ligne
-        return caches.match('./index.html');
       });
     })
   );

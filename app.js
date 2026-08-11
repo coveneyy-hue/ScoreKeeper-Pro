@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.7';
+const APP_VERSION = '1.2.8';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -1822,11 +1822,22 @@ async function init() {
   // Initialiser IndexedDB
   await DB.init();
 
-  // Enregistrer le service worker
+  // Enregistrer le service worker et forcer la vérification des mises à jour.
+  // updateViaCache:'none' évite qu'Android/Chrome réutilise une ancienne copie du SW.
   if ('serviceWorker' in navigator) {
     try {
-      await navigator.serviceWorker.register('./service-worker.js');
-      console.log('[App] Service Worker enregistré');
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+
+      const registration = await navigator.serviceWorker.register('./service-worker.js', {
+        updateViaCache: 'none'
+      });
+      await registration.update();
+      console.log('[App] Service Worker enregistré et mise à jour vérifiée');
     } catch (err) {
       console.warn('[App] SW non enregistré :', err);
     }
