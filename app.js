@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.5';
+const APP_VERSION = '1.2.6';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -1204,11 +1204,12 @@ const UI = {
         const key = `${bid}${suit}`;
         const pts = Games.fiveHundred.contractPoints(State.currentGame, key);
         const label = suit === 'NT' ? 'NT' : suit;
+        const bidLabel = State.currentGame?.mode !== 'individual' && bid === '10' ? 'Partie' : bid;
         return `
           <button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}"
             onclick="UI.selectContract('${key}')" data-key="${key}">
             <span class="suit-icon">${label}</span>
-            <span>${bid}</span>
+            <span>${bidLabel}</span>
             <small>${pts}</small>
           </button>
         `;
@@ -1237,7 +1238,12 @@ const UI = {
       btn.classList.toggle('selected', btn.dataset.key === key);
     });
     const valEl = document.getElementById('fh-contract-value');
-    if (valEl) valEl.innerHTML = `<strong>${key}</strong> = <span>${pts} points</span>`;
+    if (valEl) {
+      const displayKey = State.currentGame?.mode !== 'individual' && Games.fiveHundred.isGameContract(key)
+        ? `Partie ${key.slice(2)}`
+        : key;
+      valEl.innerHTML = `<strong>${displayKey}</strong> = <span>${pts} points</span>`;
+    }
     this.updateFhSubmitBtn();
   },
 
@@ -1716,7 +1722,7 @@ function buildScreenHTML() {
         <div class="contract-value-display" id="fh-contract-value">
           <span>Sélectionnez un contrat</span>
         </div>
-        <div class="setting-sub" style="margin-bottom:12px">Une mise de 10 réussie gagne immédiatement la partie, même à partir d'un score négatif.</div>
+        <div class="setting-sub" style="margin-bottom:12px">En équipes, la ligne Partie vaut 1040 ♠, 1060 ♣, 1080 ♦, 1100 ♥ et 1120 sans-atout. Une Partie réussie gagne immédiatement, même à partir d'un score négatif.</div>
 
         <div class="card-title" id="fh-bidder-title" style="margin-top:12px">Équipe qui enchérit</div>
         <div class="team-select-row" id="fh-bidder-buttons"></div>
