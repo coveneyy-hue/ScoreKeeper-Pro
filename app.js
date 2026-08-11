@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.4';
+const APP_VERSION = '1.2.5';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -225,12 +225,14 @@ const Router = {
    SECTION 5 : TABLES DE POINTAGE — JEU DE 500
    ================================================================ */
 
-// Barème du 500 en équipes. Une mise de 10 réussie donne la partie.
+// Barème du 500 en équipes. La mise de 10 (« la partie ») vaut au minimum
+// 1040 points à pique afin d'assurer une victoire même depuis -480, puis
+// conserve la progression de 20 points entre les couleurs.
 const FIVE_HUNDRED_TEAM_SCORES = {
   '7♠':  140, '7♣': 160, '7♦': 180, '7♥': 200, '7NT': 220,
   '8♠':  240, '8♣': 260, '8♦': 280, '8♥': 300, '8NT': 320,
   '9♠':  340, '9♣': 360, '9♦': 380, '9♥': 400, '9NT': 420,
-  '10♠': 440, '10♣': 460, '10♦': 480, '10♥': 500, '10NT': 520,
+  '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
 };
 
 // Barème individuel ajusté pour la difficulté de jouer seul contre les autres joueurs.
