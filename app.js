@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.6';
+const APP_VERSION = '1.2.7';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -235,13 +235,14 @@ const FIVE_HUNDRED_TEAM_SCORES = {
   '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
 };
 
-// Barème individuel ajusté pour la difficulté de jouer seul contre les autres joueurs.
-// Toute mise de 10 vaut au moins 1000 points et gagne donc immédiatement la partie.
+// Barème individuel maison : base à pique, puis +20 points par couleur.
+// 7♠ = 240, 8♠ = 440, 9♠ = 640 et Partie ♠ = 1040.
+// Toute mise de 10 (« Partie ») gagne donc immédiatement une partie individuelle à 1000 points.
 const FIVE_HUNDRED_INDIVIDUAL_SCORES = {
-  '7♠':  175, '7♣': 200, '7♦': 225, '7♥': 250, '7NT': 275,
-  '8♠':  360, '8♣': 390, '8♦': 420, '8♥': 450, '8NT': 480,
-  '9♠':  595, '9♣': 630, '9♦': 665, '9♥': 700, '9NT': 735,
-  '10♠': 1000, '10♣': 1020, '10♦': 1040, '10♥': 1060, '10NT': 1080,
+  '7♠':  240, '7♣': 260, '7♦': 280, '7♥': 300, '7NT': 320,
+  '8♠':  440, '8♣': 460, '8♦': 480, '8♥': 500, '8NT': 520,
+  '9♠':  640, '9♣': 660, '9♦': 680, '9♥': 700, '9NT': 720,
+  '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
 };
 
 const SUITS = ['♠','♣','♦','♥','NT'];
@@ -1204,7 +1205,7 @@ const UI = {
         const key = `${bid}${suit}`;
         const pts = Games.fiveHundred.contractPoints(State.currentGame, key);
         const label = suit === 'NT' ? 'NT' : suit;
-        const bidLabel = State.currentGame?.mode !== 'individual' && bid === '10' ? 'Partie' : bid;
+        const bidLabel = bid === '10' ? 'Partie' : bid;
         return `
           <button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}"
             onclick="UI.selectContract('${key}')" data-key="${key}">
@@ -1239,7 +1240,7 @@ const UI = {
     });
     const valEl = document.getElementById('fh-contract-value');
     if (valEl) {
-      const displayKey = State.currentGame?.mode !== 'individual' && Games.fiveHundred.isGameContract(key)
+      const displayKey = Games.fiveHundred.isGameContract(key)
         ? `Partie ${key.slice(2)}`
         : key;
       valEl.innerHTML = `<strong>${displayKey}</strong> = <span>${pts} points</span>`;
