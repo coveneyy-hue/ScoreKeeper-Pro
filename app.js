@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.3';
+const APP_VERSION = '1.2.4';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -225,11 +225,21 @@ const Router = {
    SECTION 5 : TABLES DE POINTAGE — JEU DE 500
    ================================================================ */
 
-const FIVE_HUNDRED_SCORES = {
+// Barème du 500 en équipes. Une mise de 10 réussie donne la partie.
+const FIVE_HUNDRED_TEAM_SCORES = {
   '7♠':  140, '7♣': 160, '7♦': 180, '7♥': 200, '7NT': 220,
   '8♠':  240, '8♣': 260, '8♦': 280, '8♥': 300, '8NT': 320,
   '9♠':  340, '9♣': 360, '9♦': 380, '9♥': 400, '9NT': 420,
-  '10♠': 440, '10♣':460, '10♦':480, '10♥':500, '10NT':520,
+  '10♠': 440, '10♣': 460, '10♦': 480, '10♥': 500, '10NT': 520,
+};
+
+// Barème individuel ajusté pour la difficulté de jouer seul contre les autres joueurs.
+// Toute mise de 10 vaut au moins 1000 points et gagne donc immédiatement la partie.
+const FIVE_HUNDRED_INDIVIDUAL_SCORES = {
+  '7♠':  175, '7♣': 200, '7♦': 225, '7♥': 250, '7NT': 275,
+  '8♠':  360, '8♣': 390, '8♦': 420, '8♥': 450, '8NT': 480,
+  '9♠':  595, '9♣': 630, '9♦': 665, '9♥': 700, '9NT': 735,
+  '10♠': 1000, '10♣': 1020, '10♦': 1040, '10♥': 1060, '10NT': 1080,
 };
 
 const SUITS = ['♠','♣','♦','♥','NT'];
@@ -362,7 +372,7 @@ const Games = {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         players: players.map(name => ({ name, score: 0 })),
-        scoreLimit: 750,
+        scoreLimit: 1000,
         history: [],
       };
     },
@@ -377,12 +387,23 @@ const Games = {
     },
 
     scoreLimit(game) {
-      return game.mode === 'individual' ? 750 : 1000;
+      return game.mode === 'individual' ? 1000 : 500;
+    },
+
+    contractPoints(game, contractKey) {
+      const table = game?.mode === 'individual'
+        ? FIVE_HUNDRED_INDIVIDUAL_SCORES
+        : FIVE_HUNDRED_TEAM_SCORES;
+      return table[contractKey] || 0;
+    },
+
+    isGameContract(contractKey) {
+      return parseInt(contractKey, 10) === 10;
     },
 
     /** Applique un résultat de contrat en mode équipes. */
     applyContract(game, teamIdx, contractKey, success) {
-      const pts   = FIVE_HUNDRED_SCORES[contractKey] || 0;
+      const pts   = this.contractPoints(game, contractKey);
       const team  = game.teams[teamIdx];
       const old   = team.score;
       const delta = success ? pts : -pts;
@@ -401,8 +422,26 @@ const Games = {
       });
       game.updatedAt = new Date().toISOString();
 
-      const winner = game.teams.find(t => t.score >= 1000);
-      if (winner) game.status = 'finished';
+      let winner = null;
+      if (success && this.isGameContract(contractKey)) {
+        // Une mise de 10 réussie (« la partie ») gagne immédiatement,
+        // même si l'équipe était auparavant dans le négatif.
+        winner = team;
+        game.status = 'finished';
+        game.winnerName = team.name;
+        game.winReason = 'contract10';
+      } else {
+        winner = game.teams.find(t => t.score >= 500) || null;
+        if (!winner) {
+          const loserIdx = game.teams.findIndex(t => t.score <= -500);
+          if (loserIdx >= 0) winner = game.teams[loserIdx === 0 ? 1 : 0];
+        }
+        if (winner) {
+          game.status = 'finished';
+          game.winnerName = winner.name;
+          game.winReason = 'score';
+        }
+      }
       return { delta, newValue: team.score, winner };
     },
 
@@ -415,7 +454,7 @@ const Games = {
      * - aucun score ne devient négatif.
      */
     applyIndividualRound(game, bidderIdx, contractKey, success, opponentTricks = []) {
-      const contractPoints = FIVE_HUNDRED_SCORES[contractKey] || 0;
+      const contractPoints = this.contractPoints(game, contractKey);
       const snapshots = [];
       let pointsPerOpposingTrick = 0;
 
@@ -455,8 +494,21 @@ const Games = {
       });
       game.updatedAt = new Date().toISOString();
 
-      const winner = game.players.find(p => p.score >= 750);
-      if (winner) game.status = 'finished';
+      let winner = null;
+      if (success && this.isGameContract(contractKey)) {
+        // Une mise de 10 réussie gagne immédiatement, quel que soit le score précédent.
+        winner = game.players[bidderIdx];
+        game.status = 'finished';
+        game.winnerName = winner.name;
+        game.winReason = 'contract10';
+      } else {
+        winner = game.players.find(p => p.score >= 1000) || null;
+        if (winner) {
+          game.status = 'finished';
+          game.winnerName = winner.name;
+          game.winReason = 'score';
+        }
+      }
       return { success, contractPoints, pointsPerOpposingTrick, snapshots, winner };
     },
 
@@ -479,8 +531,21 @@ const Games = {
       });
       game.updatedAt = new Date().toISOString();
 
-      const winner = list.find(e => e.score >= this.scoreLimit(game));
-      if (winner) game.status = 'finished';
+      let winner = null;
+      if (game.mode === 'individual') {
+        winner = list.find(e => e.score >= 1000) || null;
+      } else {
+        winner = list.find(e => e.score >= 500) || null;
+        if (!winner) {
+          const loserIdx = list.findIndex(e => e.score <= -500);
+          if (loserIdx >= 0) winner = list[loserIdx === 0 ? 1 : 0];
+        }
+      }
+      if (winner) {
+        game.status = 'finished';
+        game.winnerName = winner.name;
+        game.winReason = 'score';
+      }
       return { old, delta: appliedDelta, newValue: entity.score, winner };
     }
   },
@@ -605,7 +670,7 @@ const Screens = {
             <label class="form-label">Équipe 2</label>
             <input class="form-input" id="team1-name" type="text" value="Nous" maxlength="20">
           </div>
-          <div class="setting-sub">Victoire à 1000 points.</div>
+          <div class="setting-sub">500 en équipes : victoire à +500 ou défaite à -500. Une mise de 10 réussie gagne immédiatement la partie.</div>
         </div>
 
         <div class="card" id="fh-new-individual" style="display:none">
@@ -619,7 +684,7 @@ const Screens = {
             </select>
           </div>
           <div id="fh-player-name-inputs" class="player-inputs"></div>
-          <div class="setting-sub" style="margin-top:12px">Victoire à 750 points. Un contrat chuté ne retire aucun point.</div>
+          <div class="setting-sub" style="margin-top:12px">Victoire à 1000 points. Une mise de 10 réussie gagne immédiatement la partie. Un contrat chuté ne retire aucun point.</div>
         </div>
       `;
       UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
@@ -754,11 +819,22 @@ const Screens = {
     if (!game.mode) game.mode = 'teams';
 
     const list = game.mode === 'individual' ? game.players : game.teams;
-    const limit = game.mode === 'individual' ? 750 : 1000;
-    const winner = list.find(e => e.score >= limit);
+    const limit = game.mode === 'individual' ? 1000 : 500;
+    let winner = game.winnerName ? list.find(e => e.name === game.winnerName) : null;
+    if (!winner) {
+      if (game.mode === 'individual') {
+        winner = list.find(e => e.score >= 1000) || null;
+      } else {
+        winner = list.find(e => e.score >= 500) || null;
+        if (!winner) {
+          const loserIdx = list.findIndex(e => e.score <= -500);
+          if (loserIdx >= 0) winner = list[loserIdx === 0 ? 1 : 0];
+        }
+      }
+    }
 
     document.getElementById('fh-screen-title').textContent = game.mode === 'individual' ? '🃏 500 individuel' : '🃏 Jeu de 500';
-    document.getElementById('fh-mode-badge').textContent = game.mode === 'individual' ? `Individuel · ${limit} pts` : `Équipes · ${limit} pts`;
+    document.getElementById('fh-mode-badge').textContent = game.mode === 'individual' ? 'Individuel · 1000 pts' : 'Équipes · -500 à +500';
 
     const teamsEl = document.getElementById('fh-teams');
     teamsEl.classList.toggle('individual', game.mode === 'individual');
@@ -1124,7 +1200,7 @@ const UI = {
     const rows = bids.map(bid =>
       SUITS.map(suit => {
         const key = `${bid}${suit}`;
-        const pts = FIVE_HUNDRED_SCORES[key];
+        const pts = Games.fiveHundred.contractPoints(State.currentGame, key);
         const label = suit === 'NT' ? 'NT' : suit;
         return `
           <button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}"
@@ -1154,7 +1230,7 @@ const UI = {
   selectContract(key) {
     if (State.currentGame?.mode === 'individual') this.resetFhIndividualFlow();
     UI._selectedContract = key;
-    const pts = FIVE_HUNDRED_SCORES[key];
+    const pts = Games.fiveHundred.contractPoints(State.currentGame, key);
     document.querySelectorAll('.contract-btn').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.key === key);
     });
@@ -1294,7 +1370,7 @@ const UI = {
     await DB.save('games', game);
 
     Utils.toast(
-      success ? `✅ +${FIVE_HUNDRED_SCORES[UI._selectedContract]} pts` : `❌ ${result.delta} pts`,
+      success ? `✅ +${Games.fiveHundred.contractPoints(game, UI._selectedContract)} pts` : `❌ ${result.delta} pts`,
       success ? 'success' : 'error'
     );
 
@@ -1616,7 +1692,7 @@ function buildScreenHTML() {
         </div>
       </div>
 
-      <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · 1000 pts</div>
+      <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · -500 à +500</div>
       <div class="five-hundred-teams" id="fh-teams"></div>
 
       <div id="fh-victory" class="victory-banner" style="display:none">
@@ -1638,6 +1714,7 @@ function buildScreenHTML() {
         <div class="contract-value-display" id="fh-contract-value">
           <span>Sélectionnez un contrat</span>
         </div>
+        <div class="setting-sub" style="margin-bottom:12px">Une mise de 10 réussie gagne immédiatement la partie, même à partir d'un score négatif.</div>
 
         <div class="card-title" id="fh-bidder-title" style="margin-top:12px">Équipe qui enchérit</div>
         <div class="team-select-row" id="fh-bidder-buttons"></div>
