@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.8';
+const APP_VERSION = '1.2.9';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -235,14 +235,35 @@ const FIVE_HUNDRED_TEAM_SCORES = {
   '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
 };
 
-// Barème individuel maison : base à pique, puis +20 points par couleur.
-// 7♠ = 240, 8♠ = 440, 9♠ = 640 et Partie ♠ = 1040.
-// Toute mise de 10 (« Partie ») gagne donc immédiatement une partie individuelle à 1000 points.
-const FIVE_HUNDRED_INDIVIDUAL_SCORES = {
-  '7♠':  240, '7♣': 260, '7♦': 280, '7♥': 300, '7NT': 320,
-  '8♠':  440, '8♣': 460, '8♦': 480, '8♥': 500, '8NT': 520,
-  '9♠':  640, '9♣': 660, '9♦': 680, '9♥': 700, '9NT': 720,
-  '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
+// Barèmes individuels selon le nombre de joueurs.
+// À 2 joueurs, le barème est identique au 500 en équipes.
+// À 3 joueurs, la valeur est intermédiaire. À 4 joueurs, le miseur est davantage récompensé.
+// La mise de 10 (« Partie ») conserve 1040 à pique puis +20 et gagne immédiatement.
+const FIVE_HUNDRED_INDIVIDUAL_SCORES_BY_PLAYERS = {
+  2: {
+    '7♠':  140, '7♣': 160, '7♦': 180, '7♥': 200, '7NT': 220,
+    '8♠':  240, '8♣': 260, '8♦': 280, '8♥': 300, '8NT': 320,
+    '9♠':  340, '9♣': 360, '9♦': 380, '9♥': 400, '9NT': 420,
+    '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
+  },
+  3: {
+    '7♠':  190, '7♣': 210, '7♦': 230, '7♥': 250, '7NT': 270,
+    '8♠':  340, '8♣': 360, '8♦': 380, '8♥': 400, '8NT': 420,
+    '9♠':  490, '9♣': 510, '9♦': 530, '9♥': 550, '9NT': 570,
+    '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
+  },
+  4: {
+    '7♠':  240, '7♣': 260, '7♦': 280, '7♥': 300, '7NT': 320,
+    '8♠':  440, '8♣': 460, '8♦': 480, '8♥': 500, '8NT': 520,
+    '9♠':  640, '9♣': 660, '9♦': 680, '9♥': 700, '9NT': 720,
+    '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
+  },
+};
+
+const FIVE_HUNDRED_INDIVIDUAL_OPPONENT_POOL_RATIO = {
+  2: 1.00,
+  3: 0.85,
+  4: 0.70,
 };
 
 const SUITS = ['♠','♣','♦','♥','NT'];
@@ -394,10 +415,24 @@ const Games = {
     },
 
     contractPoints(game, contractKey) {
-      const table = game?.mode === 'individual'
-        ? FIVE_HUNDRED_INDIVIDUAL_SCORES
-        : FIVE_HUNDRED_TEAM_SCORES;
-      return table[contractKey] || 0;
+      if (game?.mode === 'individual') {
+        const playerCount = Utils.clamp(game.players?.length || 2, 2, 4);
+        const table = FIVE_HUNDRED_INDIVIDUAL_SCORES_BY_PLAYERS[playerCount];
+        return table?.[contractKey] || 0;
+      }
+      return FIVE_HUNDRED_TEAM_SCORES[contractKey] || 0;
+    },
+
+    opponentPoolRatio(game) {
+      if (game?.mode !== 'individual') return 1;
+      const playerCount = Utils.clamp(game.players?.length || 2, 2, 4);
+      return FIVE_HUNDRED_INDIVIDUAL_OPPONENT_POOL_RATIO[playerCount] || 1;
+    },
+
+    opponentPointsPool(game, contractKey) {
+      const contractPoints = this.contractPoints(game, contractKey);
+      const ratio = this.opponentPoolRatio(game);
+      return Math.ceil((contractPoints * ratio) / 20) * 20;
     },
 
     isGameContract(contractKey) {
@@ -450,14 +485,17 @@ const Games = {
 
     /**
      * Mode individuel :
-     * - le résultat du miseur est demandé directement;
-     * - s'il gagne, lui seul reçoit immédiatement la valeur standard du contrat;
+     * - le barème du miseur dépend du nombre de joueurs;
+     * - s'il gagne, lui seul reçoit la valeur complète du contrat;
      * - s'il perd, on saisit uniquement les levées des adversaires;
-     * - valeur d'une levée adverse = plafond(points du contrat / levées adverses totales);
+     * - le bassin distribué vaut 100 % du contrat à 2 joueurs, 85 % à 3 et 70 % à 4;
+     * - ce bassin est arrondi au 20 supérieur, puis réparti selon les levées adverses;
      * - aucun score ne devient négatif.
      */
     applyIndividualRound(game, bidderIdx, contractKey, success, opponentTricks = []) {
       const contractPoints = this.contractPoints(game, contractKey);
+      const opponentPoolRatio = this.opponentPoolRatio(game);
+      const opponentPointsPool = success ? 0 : this.opponentPointsPool(game, contractKey);
       const snapshots = [];
       let pointsPerOpposingTrick = 0;
 
@@ -472,7 +510,7 @@ const Games = {
         const opposingTricks = game.players.reduce((sum, _, i) => {
           return sum + (i === bidderIdx ? 0 : (parseInt(opponentTricks[i], 10) || 0));
         }, 0);
-        pointsPerOpposingTrick = opposingTricks > 0 ? Math.ceil(contractPoints / opposingTricks) : 0;
+        pointsPerOpposingTrick = opposingTricks > 0 ? Math.ceil(opponentPointsPool / opposingTricks) : 0;
 
         game.players.forEach((p, i) => {
           const old = p.score;
@@ -492,6 +530,8 @@ const Games = {
         contractPoints,
         success,
         opponentTricks: success ? [] : [...opponentTricks],
+        opponentPoolRatio,
+        opponentPointsPool,
         pointsPerOpposingTrick,
         scores: snapshots,
       });
@@ -512,7 +552,7 @@ const Games = {
           game.winReason = 'score';
         }
       }
-      return { success, contractPoints, pointsPerOpposingTrick, snapshots, winner };
+      return { success, contractPoints, opponentPoolRatio, opponentPointsPool, pointsPerOpposingTrick, snapshots, winner };
     },
 
     /** Ajustement manuel, utilisé notamment pour les pénalités. */
@@ -687,7 +727,7 @@ const Screens = {
             </select>
           </div>
           <div id="fh-player-name-inputs" class="player-inputs"></div>
-          <div class="setting-sub" style="margin-top:12px">Victoire à 1000 points. Une mise de 10 réussie gagne immédiatement la partie. Un contrat chuté ne retire aucun point.</div>
+          <div class="setting-sub" style="margin-top:12px">Victoire à 1000 points. Le barème augmente avec le nombre de joueurs. En cas de chute, les adversaires se partagent un bassin de 100 % du contrat à 2 joueurs, 85 % à 3 et 70 % à 4.</div>
         </div>
       `;
       UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
@@ -942,7 +982,7 @@ const Screens = {
         `;
       } else if (game.type === 'fiveHundred') {
         if (e.kind === 'individualRound') {
-          const perTrick = e.success ? '' : ` · ${e.pointsPerOpposingTrick} pts/levée`;
+          const perTrick = e.success ? '' : ` · bassin ${e.opponentPointsPool ?? '?'} pts · ${e.pointsPerOpposingTrick} pts/levée`;
           const scoreLines = e.scores.map(sc => {
             const trickText = sc.tricks === null || sc.tricks === undefined ? '' : `${sc.tricks} levée(s), `;
             return `<div class="history-detail">${Utils.esc(sc.player)} : ${trickText}${Utils.signed(sc.delta)} pts → ${sc.newValue}</div>`;
@@ -1243,7 +1283,13 @@ const UI = {
       const displayKey = Games.fiveHundred.isGameContract(key)
         ? `Partie ${key.slice(2)}`
         : key;
-      valEl.innerHTML = `<strong>${displayKey}</strong> = <span>${pts} points</span>`;
+      if (State.currentGame?.mode === 'individual') {
+        const pct = Math.round(Games.fiveHundred.opponentPoolRatio(State.currentGame) * 100);
+        const pool = Games.fiveHundred.opponentPointsPool(State.currentGame, key);
+        valEl.innerHTML = `<strong>${displayKey}</strong> = <span>${pts} points</span><div class="setting-sub" style="margin-top:4px">Si chuté : bassin adverse ${pool} pts (${pct} %)</div>`;
+      } else {
+        valEl.innerHTML = `<strong>${displayKey}</strong> = <span>${pts} points</span>`;
+      }
     }
     this.updateFhSubmitBtn();
   },
@@ -1349,7 +1395,7 @@ const UI = {
       game, UI._selectedTeam, UI._selectedContract, false, UI._fhOpponentTricks
     );
     await DB.save('games', game);
-    Utils.toast(`❌ Mise perdue : ${result.pointsPerOpposingTrick} pts par levée adverse`, 'info', 4000);
+    Utils.toast(`❌ Mise perdue : bassin ${result.opponentPointsPool} pts · ${result.pointsPerOpposingTrick} pts par levée adverse`, 'info', 4500);
 
     UI._selectedContract = null;
     UI._selectedTeam = null;
