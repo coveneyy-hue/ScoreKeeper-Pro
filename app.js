@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.2';
+const APP_VERSION = '1.2.3';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -615,13 +615,14 @@ const Screens = {
             <select class="form-select" id="fh-player-count" onchange="UI.renderNewFhPlayerInputs()">
               <option value="2">2 joueurs</option>
               <option value="3" selected>3 joueurs</option>
+              <option value="4">4 joueurs</option>
             </select>
           </div>
           <div id="fh-player-name-inputs" class="player-inputs"></div>
           <div class="setting-sub" style="margin-top:12px">Victoire à 750 points. Un contrat chuté ne retire aucun point.</div>
         </div>
       `;
-      UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor'];
+      UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
       UI.renderNewFhPlayerInputs();
     } else {
       const defaultCount = type === 'magic' ? 4 : type === 'hearts' ? 4 : 2;
