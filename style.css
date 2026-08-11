@@ -995,31 +995,19 @@ body {
   .magic-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 }
 
-/* ── Modification manuelle de l'historique ── */
-.history-round-marker {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
+
+/* ── ScoreKeeper Pro 1.2 : 500 individuel ── */
+.five-hundred-teams.individual {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
 }
-.history-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
-}
-.history-edit-btn {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-family: var(--font-main);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-.history-edit-btn:active {
-  background: var(--bg-elevated);
-  color: var(--accent);
+.five-hundred-teams.individual .team-card { min-width: 0; }
+.five-hundred-teams.individual .team-score { font-size: 40px; }
+.team-select-row { flex-wrap: wrap; }
+.team-select-row .team-select-btn { min-width: 90px; }
+.home-version {
+  text-align: center;
+  color: var(--text-disabled);
+  font-size: 11px;
+  padding: 2px 0 8px;
 }

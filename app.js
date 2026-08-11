@@ -6,6 +6,8 @@
 
 'use strict';
 
+const APP_VERSION = '1.2.0';
+
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
    ================================================================ */
@@ -167,12 +169,6 @@ const Utils = {
   /** Formate un nombre signé */
   signed(n) { return n > 0 ? `+${n}` : `${n}`; },
 
-  /** Convertit une saisie utilisateur en nombre entier sécuritaire */
-  parseIntSafe(value, fallback = 0) {
-    const n = parseInt(String(value).trim(), 10);
-    return Number.isFinite(n) ? n : fallback;
-  },
-
   /** Clamp un nombre entre min et max */
   clamp: (v, min, max) => Math.min(max, Math.max(min, v)),
 
@@ -230,6 +226,7 @@ const Router = {
    ================================================================ */
 
 const FIVE_HUNDRED_SCORES = {
+  '7♠':  140, '7♣': 160, '7♦': 180, '7♥': 200, '7NT': 220,
   '8♠':  240, '8♣': 260, '8♦': 280, '8♥': 300, '8NT': 320,
   '9♠':  340, '9♣': 360, '9♦': 380, '9♥': 400, '9NT': 420,
   '10♠': 440, '10♣':460, '10♦':480, '10♥':500, '10NT':520,
@@ -340,10 +337,11 @@ const Games = {
 
   /* ─── Jeu de 500 ─── */
   fiveHundred: {
-    create(team0Name, team1Name) {
+    createTeams(team0Name, team1Name) {
       return {
         id: Utils.uid(),
         type: 'fiveHundred',
+        mode: 'teams',
         status: 'active',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -355,7 +353,34 @@ const Games = {
       };
     },
 
-    /** Applique un résultat de contrat */
+    createIndividual(players) {
+      return {
+        id: Utils.uid(),
+        type: 'fiveHundred',
+        mode: 'individual',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        players: players.map(name => ({ name, score: 0 })),
+        scoreLimit: 750,
+        history: [],
+      };
+    },
+
+    /** Compatibilité avec les anciennes créations d'une partie par équipes. */
+    create(team0Name, team1Name) {
+      return this.createTeams(team0Name, team1Name);
+    },
+
+    entities(game) {
+      return game.mode === 'individual' ? game.players : game.teams;
+    },
+
+    scoreLimit(game) {
+      return game.mode === 'individual' ? 750 : 1000;
+    },
+
+    /** Applique un résultat de contrat en mode équipes. */
     applyContract(game, teamIdx, contractKey, success) {
       const pts   = FIVE_HUNDRED_SCORES[contractKey] || 0;
       const team  = game.teams[teamIdx];
@@ -364,6 +389,7 @@ const Games = {
       team.score += delta;
 
       game.history.push({
+        kind: 'contract',
         timestamp: new Date().toISOString(),
         team: team.name,
         contract: contractKey,
@@ -375,11 +401,87 @@ const Games = {
       });
       game.updatedAt = new Date().toISOString();
 
-      // Vérifier victoire
       const winner = game.teams.find(t => t.score >= 1000);
       if (winner) game.status = 'finished';
-
       return { delta, newValue: team.score, winner };
+    },
+
+    /**
+     * Mode individuel :
+     * - si le preneur atteint son contrat, lui seul reçoit la valeur standard du contrat;
+     * - s'il chute, il reçoit 0 et les adversaires se partagent la valeur du contrat
+     *   au prorata des levées qu'ils ont remportées;
+     * - valeur d'une levée = plafond(points du contrat / levées adverses totales);
+     * - aucun score ne devient négatif.
+     */
+    applyIndividualRound(game, bidderIdx, contractKey, tricks) {
+      const contractPoints = FIVE_HUNDRED_SCORES[contractKey] || 0;
+      const bidTricks = parseInt(contractKey, 10);
+      const bidderTricks = tricks[bidderIdx] || 0;
+      const success = bidderTricks >= bidTricks;
+      const snapshots = [];
+      let pointsPerOpposingTrick = 0;
+
+      if (success) {
+        game.players.forEach((p, i) => {
+          const old = p.score;
+          const delta = i === bidderIdx ? contractPoints : 0;
+          p.score = Math.max(0, old + delta);
+          snapshots.push({ player: p.name, tricks: tricks[i] || 0, oldValue: old, delta, newValue: p.score });
+        });
+      } else {
+        const opposingTricks = tricks.reduce((sum, n, i) => sum + (i === bidderIdx ? 0 : n), 0);
+        pointsPerOpposingTrick = opposingTricks > 0 ? Math.ceil(contractPoints / opposingTricks) : 0;
+
+        game.players.forEach((p, i) => {
+          const old = p.score;
+          const delta = i === bidderIdx ? 0 : (tricks[i] || 0) * pointsPerOpposingTrick;
+          p.score = Math.max(0, old + delta);
+          snapshots.push({ player: p.name, tricks: tricks[i] || 0, oldValue: old, delta, newValue: p.score });
+        });
+      }
+
+      game.history.push({
+        kind: 'individualRound',
+        timestamp: new Date().toISOString(),
+        bidder: game.players[bidderIdx].name,
+        bidderIdx,
+        contract: contractKey,
+        contractPoints,
+        success,
+        tricks: [...tricks],
+        pointsPerOpposingTrick,
+        scores: snapshots,
+      });
+      game.updatedAt = new Date().toISOString();
+
+      const winner = game.players.find(p => p.score >= 750);
+      if (winner) game.status = 'finished';
+      return { success, contractPoints, pointsPerOpposingTrick, snapshots, winner };
+    },
+
+    /** Ajustement manuel, utilisé notamment pour les pénalités. */
+    adjustScore(game, entityIdx, delta) {
+      const list = this.entities(game);
+      const entity = list[entityIdx];
+      const old = entity.score;
+      entity.score = game.mode === 'individual' ? Math.max(0, old + delta) : old + delta;
+      const appliedDelta = entity.score - old;
+
+      game.history.push({
+        kind: 'manual',
+        timestamp: new Date().toISOString(),
+        player: game.mode === 'individual' ? entity.name : undefined,
+        team: game.mode === 'individual' ? undefined : entity.name,
+        oldValue: old,
+        delta: appliedDelta,
+        newValue: entity.score,
+      });
+      game.updatedAt = new Date().toISOString();
+
+      const winner = list.find(e => e.score >= this.scoreLimit(game));
+      if (winner) game.status = 'finished';
+      return { old, delta: appliedDelta, newValue: entity.score, winner };
     }
   },
 
@@ -482,8 +584,18 @@ const Screens = {
     container.innerHTML = '';
 
     if (type === 'fiveHundred') {
+      const savedNames = JSON.parse(localStorage.getItem('savedPlayerNames') || '[]');
       container.innerHTML = `
         <div class="card">
+          <div class="card-title">Mode de jeu</div>
+          <div class="tabs">
+            <button class="tab-btn active" id="fh-mode-teams" onclick="UI.setNewFhMode('teams')">Équipes</button>
+            <button class="tab-btn" id="fh-mode-individual" onclick="UI.setNewFhMode('individual')">Individuel</button>
+          </div>
+          <input type="hidden" id="fh-new-mode" value="teams">
+        </div>
+
+        <div class="card" id="fh-new-teams">
           <div class="card-title">Noms des équipes</div>
           <div class="form-group">
             <label class="form-label">Équipe 1</label>
@@ -493,8 +605,24 @@ const Screens = {
             <label class="form-label">Équipe 2</label>
             <input class="form-input" id="team1-name" type="text" value="Est-Ouest" maxlength="20">
           </div>
+          <div class="setting-sub">Victoire à 1000 points.</div>
+        </div>
+
+        <div class="card" id="fh-new-individual" style="display:none">
+          <div class="card-title">Joueurs</div>
+          <div class="form-group">
+            <label class="form-label">Nombre de joueurs</label>
+            <select class="form-select" id="fh-player-count" onchange="UI.renderNewFhPlayerInputs()">
+              <option value="2">2 joueurs</option>
+              <option value="3" selected>3 joueurs</option>
+            </select>
+          </div>
+          <div id="fh-player-name-inputs" class="player-inputs"></div>
+          <div class="setting-sub" style="margin-top:12px">Victoire à 750 points. Un contrat chuté ne retire aucun point.</div>
         </div>
       `;
+      UI._newFhSavedNames = savedNames;
+      UI.renderNewFhPlayerInputs();
     } else {
       const defaultCount = type === 'magic' ? 4 : type === 'hearts' ? 4 : 2;
       const minCount     = type === 'magic' ? 2 : 2;
@@ -622,18 +750,24 @@ const Screens = {
   render_five_hundred() {
     if (!State.currentGame || State.currentGame.type !== 'fiveHundred') return;
     const game = State.currentGame;
+    if (!game.mode) game.mode = 'teams';
 
-    // Scores des équipes
+    const list = game.mode === 'individual' ? game.players : game.teams;
+    const limit = game.mode === 'individual' ? 750 : 1000;
+    const winner = list.find(e => e.score >= limit);
+
+    document.getElementById('fh-screen-title').textContent = game.mode === 'individual' ? '🃏 500 individuel' : '🃏 Jeu de 500';
+    document.getElementById('fh-mode-badge').textContent = game.mode === 'individual' ? `Individuel · ${limit} pts` : `Équipes · ${limit} pts`;
+
     const teamsEl = document.getElementById('fh-teams');
-    const winner  = game.teams.find(t => t.score >= 1000);
-    teamsEl.innerHTML = game.teams.map((t, i) => `
+    teamsEl.classList.toggle('individual', game.mode === 'individual');
+    teamsEl.innerHTML = list.map((t, i) => `
       <div class="team-card ${winner === t ? 'winner' : ''}">
         <div class="team-name">${Utils.esc(t.name)}</div>
         <div class="team-score ${t.score < 0 ? 'negative' : 'positive'}">${t.score}</div>
       </div>
     `).join('');
 
-    // Victoire
     const victBanner = document.getElementById('fh-victory');
     if (winner) {
       victBanner.style.display = 'block';
@@ -643,8 +777,23 @@ const Screens = {
       victBanner.style.display = 'none';
     }
 
-    // Sélecteur de contrat (rebuild si nécessaire)
+    const resultBtns = document.getElementById('fh-team-result-btns');
+    const tricksSection = document.getElementById('fh-individual-tricks');
+    const bidderTitle = document.getElementById('fh-bidder-title');
+    if (game.mode === 'individual') {
+      resultBtns.style.display = 'none';
+      tricksSection.style.display = 'block';
+      bidderTitle.textContent = 'Joueur qui mise';
+      UI.renderFhTrickInputs();
+    } else {
+      resultBtns.style.display = 'flex';
+      tricksSection.style.display = 'none';
+      bidderTitle.textContent = 'Équipe qui enchérit';
+    }
+
     UI.renderContractPicker();
+    UI.renderFhEntityButtons();
+    UI.renderFhManualAdjust();
   },
 
   /* ─── Générique ─── */
@@ -686,10 +835,7 @@ const Screens = {
     const game = State.currentGame;
     const el   = document.getElementById('history-list');
 
-    const entries = game.history
-      .map((entry, index) => ({ entry, index }))
-      .reverse();
-
+    const entries = [...game.history].reverse();
     if (!entries.length) {
       el.innerHTML = `<div class="empty-state">
         <div class="empty-state-icon">📋</div>
@@ -698,13 +844,10 @@ const Screens = {
       return;
     }
 
-    el.innerHTML = entries.map(({ entry: e, index }) => {
+    el.innerHTML = entries.map(e => {
       if (game.type === 'hearts') {
         return `
-          <div class="history-round-marker">
-            <span>— Round ${e.round} · Total ${e.total} pts —</span>
-            <button class="history-edit-btn" onclick="UI.editHistoryEntry(${index})" title="Modifier ce round">✏️</button>
-          </div>
+          <div class="history-round-marker">— Round ${e.round} · Total ${e.total} pts —</div>
           ${e.scores.map(s => `
             <div class="history-entry">
               <div class="history-header">
@@ -718,6 +861,30 @@ const Screens = {
           `).join('')}
         `;
       } else if (game.type === 'fiveHundred') {
+        if (e.kind === 'individualRound') {
+          const perTrick = e.success ? '' : ` · ${e.pointsPerOpposingTrick} pts/levée`;
+          return `
+            <div class="history-entry">
+              <div class="history-header">
+                <span class="history-player">${Utils.esc(e.bidder)} · ${e.contract}</span>
+                <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
+              </div>
+              <div class="history-detail">${e.success ? '✅ Contrat réussi' : '❌ Contrat chuté'}${perTrick}</div>
+              ${e.scores.map(sc => `<div class="history-detail">${Utils.esc(sc.player)} : ${sc.tricks} levée(s), ${Utils.signed(sc.delta)} pts → ${sc.newValue}</div>`).join('')}
+            </div>
+          `;
+        }
+        if (e.kind === 'manual') {
+          return `
+            <div class="history-entry">
+              <div class="history-header">
+                <span class="history-player">${Utils.esc(e.player || e.team || '')} · Ajustement manuel</span>
+                <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
+              </div>
+              <div class="history-detail">${e.oldValue} <span class="${e.delta >= 0 ? 'history-delta-pos' : 'history-delta-neg'}">${Utils.signed(e.delta)}</span> → ${e.newValue}</div>
+            </div>
+          `;
+        }
         return `
           <div class="history-entry">
             <div class="history-header">
@@ -727,9 +894,6 @@ const Screens = {
             <div class="history-detail">
               ${e.oldValue} <span class="${e.delta >= 0 ? 'history-delta-pos' : 'history-delta-neg'}">${Utils.signed(e.delta)}</span> → ${e.newValue}
               (${e.success ? '✅ Réussi' : '❌ Chuté'})
-            </div>
-            <div class="history-actions">
-              <button class="history-edit-btn" onclick="UI.editHistoryEntry(${index})">✏️ Modifier</button>
             </div>
           </div>
         `;
@@ -742,9 +906,6 @@ const Screens = {
             </div>
             <div class="history-detail">
               ${e.oldValue} <span class="${e.delta >= 0 ? 'history-delta-pos' : 'history-delta-neg'}">${Utils.signed(e.delta)}</span> → ${e.newValue}
-            </div>
-            <div class="history-actions">
-              <button class="history-edit-btn" onclick="UI.editHistoryEntry(${index})">✏️ Modifier</button>
             </div>
           </div>
         `;
@@ -760,11 +921,34 @@ const Screens = {
 const UI = {
   _magicDelta: 1,       // valeur par défaut pour +/- en Magic
   _selectedContract: null,  // contrat sélectionné en jeu de 500
-  _selectedTeam: null,      // équipe sélectionnée en jeu de 500
+  _selectedTeam: null,      // équipe/joueur sélectionné en jeu de 500
+  _newFhSavedNames: [],
 
   /** Démarre la création d'une partie */
   startNewGame(type) {
     Router.go('new-game', { type });
+  },
+
+  setNewFhMode(mode) {
+    document.getElementById('fh-new-mode').value = mode;
+    document.getElementById('fh-new-teams').style.display = mode === 'teams' ? 'block' : 'none';
+    document.getElementById('fh-new-individual').style.display = mode === 'individual' ? 'block' : 'none';
+    document.getElementById('fh-mode-teams').classList.toggle('active', mode === 'teams');
+    document.getElementById('fh-mode-individual').classList.toggle('active', mode === 'individual');
+  },
+
+  renderNewFhPlayerInputs() {
+    const countEl = document.getElementById('fh-player-count');
+    const inputs = document.getElementById('fh-player-name-inputs');
+    if (!countEl || !inputs) return;
+    const count = parseInt(countEl.value, 10);
+    inputs.innerHTML = Array.from({length: count}, (_, i) => `
+      <div class="player-input-row">
+        <div class="player-input-num">${i+1}</div>
+        <input class="form-input" type="text" placeholder="Joueur ${i+1}"
+          value="${Utils.esc(UI._newFhSavedNames[i] || '')}" maxlength="16" data-player="${i}">
+      </div>
+    `).join('');
   },
 
   /** Reprend une partie existante */
@@ -787,9 +971,17 @@ const UI = {
       let game;
 
       if (type === 'fiveHundred') {
-        const t0 = document.getElementById('team0-name').value.trim() || 'Équipe 1';
-        const t1 = document.getElementById('team1-name').value.trim() || 'Équipe 2';
-        game = Games.fiveHundred.create(t0, t1);
+        const mode = document.getElementById('fh-new-mode')?.value || 'teams';
+        if (mode === 'individual') {
+          const inputs = document.querySelectorAll('#fh-player-name-inputs input');
+          const names = Array.from(inputs).map((inp, i) => inp.value.trim() || `Joueur ${i+1}`);
+          localStorage.setItem('savedPlayerNames', JSON.stringify(names));
+          game = Games.fiveHundred.createIndividual(names);
+        } else {
+          const t0 = document.getElementById('team0-name').value.trim() || 'Équipe 1';
+          const t1 = document.getElementById('team1-name').value.trim() || 'Équipe 2';
+          game = Games.fiveHundred.createTeams(t0, t1);
+        }
 
       } else {
         const count = parseInt(document.getElementById('player-count').value);
@@ -917,25 +1109,15 @@ const UI = {
 
   /* ─── JEU DE 500 ─── */
   renderContractPicker() {
-    const bids    = ['8','9','10'];
+    const bids = ['7','8','9','10'];
     const pickerEl = document.getElementById('fh-contract-picker');
     if (!pickerEl) return;
 
-    // Mettre à jour les labels des équipes avec les vrais noms
-    const game = State.currentGame;
-    if (game && game.teams) {
-      const btn0 = document.getElementById('fh-team-0');
-      const btn1 = document.getElementById('fh-team-1');
-      if (btn0) btn0.textContent = game.teams[0].name;
-      if (btn1) btn1.textContent = game.teams[1].name;
-    }
-
-    // Construction de la grille des contrats
     const rows = bids.map(bid =>
       SUITS.map(suit => {
         const key = `${bid}${suit}`;
         const pts = FIVE_HUNDRED_SCORES[key];
-        const label = suit === 'NT' ? '🚫' : suit;
+        const label = suit === 'NT' ? 'NT' : suit;
         return `
           <button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}"
             onclick="UI.selectContract('${key}')" data-key="${key}">
@@ -950,6 +1132,17 @@ const UI = {
     pickerEl.innerHTML = rows;
   },
 
+  renderFhEntityButtons() {
+    const game = State.currentGame;
+    const wrap = document.getElementById('fh-bidder-buttons');
+    if (!game || !wrap) return;
+    const list = game.mode === 'individual' ? game.players : game.teams;
+    wrap.innerHTML = list.map((entity, i) => `
+      <button class="team-select-btn ${UI._selectedTeam === i ? `selected team-${i % 2}` : ''}"
+        onclick="UI.selectFhTeam(${i})">${Utils.esc(entity.name)}</button>
+    `).join('');
+  },
+
   selectContract(key) {
     UI._selectedContract = key;
     const pts = FIVE_HUNDRED_SCORES[key];
@@ -957,42 +1150,131 @@ const UI = {
       btn.classList.toggle('selected', btn.dataset.key === key);
     });
     const valEl = document.getElementById('fh-contract-value');
-    if (valEl) {
-      valEl.innerHTML = `<strong>${key}</strong> = <span>${pts} points</span>`;
-    }
+    if (valEl) valEl.innerHTML = `<strong>${key}</strong> = <span>${pts} points</span>`;
     this.updateFhSubmitBtn();
   },
 
   selectFhTeam(idx) {
     UI._selectedTeam = idx;
-    document.querySelectorAll('.team-select-btn').forEach((btn, i) => {
-      btn.classList.toggle('selected', i === idx);
-      btn.classList.toggle(`team-${i}`, i === idx);
-    });
+    this.renderFhEntityButtons();
+    this.updateFhSubmitBtn();
+  },
+
+  renderFhTrickInputs() {
+    const game = State.currentGame;
+    const el = document.getElementById('fh-trick-inputs');
+    if (!game || game.mode !== 'individual' || !el) return;
+    el.innerHTML = game.players.map((p, i) => `
+      <div class="round-entry-player">
+        <div class="rep-name">${Utils.esc(p.name)}</div>
+        <div class="rep-controls">
+          <button class="rep-btn" onclick="UI.fhAdjustTrick(${i}, -1)">−</button>
+          <input class="rep-input" type="number" id="fh-tricks-${i}" value="0" min="0" max="10" oninput="UI.updateFhTrickTotal()">
+          <button class="rep-btn" onclick="UI.fhAdjustTrick(${i}, 1)">+</button>
+        </div>
+      </div>
+    `).join('');
+    this.updateFhTrickTotal();
+  },
+
+  fhAdjustTrick(idx, delta) {
+    const input = document.getElementById(`fh-tricks-${idx}`);
+    if (!input) return;
+    input.value = Utils.clamp((parseInt(input.value, 10) || 0) + delta, 0, 10);
+    this.updateFhTrickTotal();
+  },
+
+  updateFhTrickTotal() {
+    const game = State.currentGame;
+    if (!game || game.mode !== 'individual') return;
+    const tricks = game.players.map((_, i) => parseInt(document.getElementById(`fh-tricks-${i}`)?.value || 0, 10));
+    const total = tricks.reduce((a,b) => a+b, 0);
+    const el = document.getElementById('fh-trick-total');
+    if (el) {
+      el.textContent = `${total} / 10 levées`;
+      el.className = `round-total-num ${total === 10 ? 'valid' : 'invalid'}`;
+    }
     this.updateFhSubmitBtn();
   },
 
   updateFhSubmitBtn() {
-    const ok = UI._selectedContract !== null && UI._selectedTeam !== null;
-    document.getElementById('fh-btn-success').disabled = !ok;
-    document.getElementById('fh-btn-fail').disabled    = !ok;
+    const game = State.currentGame;
+    const hasSelection = UI._selectedContract !== null && UI._selectedTeam !== null;
+    const successBtn = document.getElementById('fh-btn-success');
+    const failBtn = document.getElementById('fh-btn-fail');
+    if (successBtn) successBtn.disabled = !hasSelection;
+    if (failBtn) failBtn.disabled = !hasSelection;
+
+    const individualBtn = document.getElementById('fh-btn-individual-submit');
+    if (individualBtn) {
+      let total = 0;
+      if (game?.mode === 'individual') {
+        total = game.players.reduce((sum, _, i) => sum + parseInt(document.getElementById(`fh-tricks-${i}`)?.value || 0, 10), 0);
+      }
+      individualBtn.disabled = !(game?.mode === 'individual' && hasSelection && total === 10);
+    }
   },
 
   async fhApplyResult(success) {
     if (UI._selectedContract === null || UI._selectedTeam === null) return;
-    const game   = State.currentGame;
+    const game = State.currentGame;
+    if (game.mode === 'individual') return;
     const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, UI._selectedContract, success);
-
     await DB.save('games', game);
 
-    const pts = result.delta;
     Utils.toast(
       success ? `✅ +${FIVE_HUNDRED_SCORES[UI._selectedContract]} pts` : `❌ ${result.delta} pts`,
       success ? 'success' : 'error'
     );
 
     UI._selectedContract = null;
-    UI._selectedTeam     = null;
+    UI._selectedTeam = null;
+    Screens.render_five_hundred();
+  },
+
+  async fhApplyIndividualRound() {
+    const game = State.currentGame;
+    if (!game || game.mode !== 'individual' || UI._selectedContract === null || UI._selectedTeam === null) return;
+    const tricks = game.players.map((_, i) => parseInt(document.getElementById(`fh-tricks-${i}`)?.value || 0, 10));
+    if (tricks.reduce((a,b) => a+b, 0) !== 10) {
+      Utils.toast('Les levées doivent totaliser 10', 'error');
+      return;
+    }
+
+    const result = Games.fiveHundred.applyIndividualRound(game, UI._selectedTeam, UI._selectedContract, tricks);
+    await DB.save('games', game);
+
+    if (result.success) {
+      Utils.toast(`✅ Contrat réussi : +${result.contractPoints} pts`, 'success');
+    } else {
+      Utils.toast(`❌ Contrat chuté : ${result.pointsPerOpposingTrick} pts par levée adverse`, 'info', 4000);
+    }
+
+    UI._selectedContract = null;
+    UI._selectedTeam = null;
+    Screens.render_five_hundred();
+  },
+
+  renderFhManualAdjust() {
+    const game = State.currentGame;
+    const sel = document.getElementById('fh-adjust-entity');
+    if (!game || !sel) return;
+    const list = game.mode === 'individual' ? game.players : game.teams;
+    sel.innerHTML = list.map((e, i) => `<option value="${i}">${Utils.esc(e.name)}</option>`).join('');
+  },
+
+  async fhManualAdjust(sign) {
+    const game = State.currentGame;
+    const idx = parseInt(document.getElementById('fh-adjust-entity')?.value || 0, 10);
+    const raw = Math.abs(parseInt(document.getElementById('fh-adjust-value')?.value || 0, 10));
+    if (!raw) {
+      Utils.toast('Entrez un nombre de points', 'error');
+      return;
+    }
+    const result = Games.fiveHundred.adjustScore(game, idx, raw * sign);
+    await DB.save('games', game);
+    Utils.toast(`Ajustement ${Utils.signed(result.delta)} pts`, result.delta < 0 ? 'error' : 'success');
+    document.getElementById('fh-adjust-value').value = 0;
     Screens.render_five_hundred();
   },
 
@@ -1022,181 +1304,12 @@ const UI = {
     }
   },
 
-  /* ─── CORRECTION MANUELLE DE L'HISTORIQUE ─── */
-  async editHistoryEntry(historyIndex) {
-    const game = State.currentGame;
-    if (!game || !Array.isArray(game.history) || !game.history[historyIndex]) return;
-
-    if (game.type === 'hearts') {
-      await this.editHeartsRound(historyIndex);
-      return;
-    }
-
-    if (game.type === 'fiveHundred') {
-      await this.editFiveHundredEntry(historyIndex);
-      return;
-    }
-
-    await this.editSimpleScoreEntry(historyIndex);
-  },
-
-  async editHeartsRound(historyIndex) {
-    const game = State.currentGame;
-    const entry = game.history[historyIndex];
-    const values = [];
-
-    for (let i = 0; i < entry.scores.length; i++) {
-      const s = entry.scores[i];
-      const raw = prompt(`Round ${entry.round} — ${s.player}\nPoints corrigés pour ce round :`, s.delta);
-      if (raw === null) return;
-      const val = Utils.parseIntSafe(raw, NaN);
-      if (!Number.isFinite(val) || val < 0) {
-        Utils.toast('Valeur invalide', 'error');
-        return;
-      }
-      values.push(val);
-    }
-
-    const total = values.reduce((sum, n) => sum + n, 0);
-    if (total !== 25) {
-      Utils.toast(`Le total du round doit être 25 pts. Total saisi : ${total}`, 'error', 4500);
-      return;
-    }
-
-    entry.scores.forEach((score, i) => {
-      score.delta = values[i];
-    });
-
-    this.recalculateCurrentGameFromHistory();
-    await DB.save('games', game);
-    Utils.toast(`Round ${entry.round} corrigé`, 'success');
-    Screens.render_history();
-  },
-
-  async editFiveHundredEntry(historyIndex) {
-    const game = State.currentGame;
-    const entry = game.history[historyIndex];
-    const current = entry.delta || 0;
-    const raw = prompt(
-      `${entry.team} · ${entry.contract}\nEntrez la variation corrigée pour cette main.\nExemples : 320 ou -320`,
-      current
-    );
-    if (raw === null) return;
-
-    const delta = Utils.parseIntSafe(raw, NaN);
-    if (!Number.isFinite(delta)) {
-      Utils.toast('Valeur invalide', 'error');
-      return;
-    }
-
-    entry.delta = delta;
-    entry.points = Math.abs(delta);
-    entry.success = delta >= 0;
-
-    this.recalculateCurrentGameFromHistory();
-    await DB.save('games', game);
-    Utils.toast('Main corrigée', 'success');
-    Screens.render_history();
-  },
-
-  async editSimpleScoreEntry(historyIndex) {
-    const game = State.currentGame;
-    const entry = game.history[historyIndex];
-    const label = entry.player || entry.team || 'Entrée';
-    const raw = prompt(
-      `${label}\nEntrez la variation corrigée.\nExemples : 5 ou -5`,
-      entry.delta || 0
-    );
-    if (raw === null) return;
-
-    const delta = Utils.parseIntSafe(raw, NaN);
-    if (!Number.isFinite(delta)) {
-      Utils.toast('Valeur invalide', 'error');
-      return;
-    }
-
-    entry.delta = delta;
-    this.recalculateCurrentGameFromHistory();
-    await DB.save('games', game);
-    Utils.toast('Pointage corrigé', 'success');
-    Screens.render_history();
-  },
-
-  recalculateCurrentGameFromHistory() {
-    const game = State.currentGame;
-    if (!game) return;
-
-    if (game.type === 'hearts') {
-      game.players.forEach(p => { p.score = 0; });
-      game.history.forEach((entry, idx) => {
-        entry.round = idx + 1;
-        entry.scores.forEach(score => {
-          const player = game.players.find(p => p.name === score.player);
-          if (!player) return;
-          score.oldValue = player.score;
-          player.score += Utils.parseIntSafe(score.delta, 0);
-          score.newValue = player.score;
-        });
-        entry.total = game.players.reduce((sum, p) => sum + p.score, 0);
-      });
-      game.round = game.history.length;
-    }
-
-    if (game.type === 'magic') {
-      game.players.forEach(p => {
-        p.life = game.startingLife;
-        p.dead = false;
-      });
-      game.history.forEach(entry => {
-        const player = game.players.find(p => p.name === entry.player);
-        if (!player) return;
-        entry.oldValue = player.life;
-        player.life += Utils.parseIntSafe(entry.delta, 0);
-        if (player.life <= 0) {
-          player.dead = true;
-          player.life = Math.min(player.life, 0);
-        } else {
-          player.dead = false;
-        }
-        entry.newValue = player.life;
-      });
-    }
-
-    if (game.type === 'fiveHundred') {
-      game.teams.forEach(t => { t.score = 0; });
-      game.history.forEach(entry => {
-        const team = game.teams.find(t => t.name === entry.team);
-        if (!team) return;
-        entry.oldValue = team.score;
-        team.score += Utils.parseIntSafe(entry.delta, 0);
-        entry.newValue = team.score;
-        entry.points = Math.abs(Utils.parseIntSafe(entry.delta, 0));
-        entry.success = Utils.parseIntSafe(entry.delta, 0) >= 0;
-      });
-      game.status = game.teams.some(t => t.score >= 1000) ? 'finished' : 'active';
-    }
-
-    if (game.type === 'generic') {
-      game.players.forEach(p => { p.score = 0; });
-      game.history.forEach(entry => {
-        const player = game.players.find(p => p.name === entry.player);
-        if (!player) return;
-        entry.oldValue = player.score;
-        player.score += Utils.parseIntSafe(entry.delta, 0);
-        entry.newValue = player.score;
-      });
-      game.status = game.scoreLimit !== null && game.players.some(p => p.score >= game.scoreLimit) ? 'finished' : 'active';
-    }
-
-    game.updatedAt = new Date().toISOString();
-  },
-
   /* ─── EXPORT / IMPORT ─── */
   async exportData() {
     const games    = await DB.getAll('games');
     const settings = await DB.getAll('settings');
     const data = {
-      version: '1.0.0',
+      version: APP_VERSION,
       exportedAt: new Date().toISOString(),
       games,
       settings,
@@ -1209,7 +1322,7 @@ const UI = {
     if (!State.currentGame) return;
     const game = State.currentGame;
     Utils.downloadJSON({
-      version: '1.0.0',
+      version: APP_VERSION,
       exportedAt: new Date().toISOString(),
       game,
     }, `partie-${game.type}-${new Date().toISOString().slice(0,10)}.json`);
@@ -1321,7 +1434,7 @@ function buildScreenHTML() {
         <div class="game-card fiveh" onclick="UI.startNewGame('fiveHundred')">
           <span class="game-card-icon">🃏</span>
           <div class="game-card-name">Jeu de 500</div>
-          <div class="game-card-desc">Deux équipes · 1000 pts</div>
+          <div class="game-card-desc">Équipes ou individuel · enchères 7 à 10</div>
         </div>
         <div class="game-card generic" onclick="UI.startNewGame('generic')">
           <span class="game-card-icon">🎮</span>
@@ -1338,6 +1451,7 @@ function buildScreenHTML() {
         </div>
       </div>
 
+      <div class="home-version">Version ${APP_VERSION}</div>
       <div class="bottom-safe"></div>
     </div>
 
@@ -1433,13 +1547,14 @@ function buildScreenHTML() {
     <div class="screen" id="screen-five-hundred">
       <div class="app-header">
         <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title">🃏 Jeu de 500</div>
+        <div class="header-title" id="fh-screen-title">🃏 Jeu de 500</div>
         <div class="header-actions">
           <button class="btn-back" onclick="UI.goHistory()" title="Historique">📋</button>
           <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
         </div>
       </div>
 
+      <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · 1000 pts</div>
       <div class="five-hundred-teams" id="fh-teams"></div>
 
       <div id="fh-victory" class="victory-banner" style="display:none">
@@ -1453,29 +1568,54 @@ function buildScreenHTML() {
 
       <div class="contract-picker card">
         <div class="card-title">Sélectionner un contrat</div>
-
-        <!-- Ligne d'en-têtes suits -->
         <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:4px;text-align:center;font-size:13px;color:var(--text-secondary)">
           <div>♠</div><div>♣</div><div>♦</div><div>♥</div><div>NT</div>
         </div>
-
-        <!-- Grid des contrats (rendu dynamique) -->
         <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px" id="fh-contract-picker"></div>
 
         <div class="contract-value-display" id="fh-contract-value">
           <span>Sélectionnez un contrat</span>
         </div>
 
-        <div class="card-title" style="margin-top:12px">Équipe qui enchérit</div>
-        <div class="team-select-row">
-          <button class="team-select-btn" id="fh-team-0" onclick="UI.selectFhTeam(0)">Équipe 1</button>
-          <button class="team-select-btn" id="fh-team-1" onclick="UI.selectFhTeam(1)">Équipe 2</button>
+        <div class="card-title" id="fh-bidder-title" style="margin-top:12px">Équipe qui enchérit</div>
+        <div class="team-select-row" id="fh-bidder-buttons"></div>
+
+        <div class="result-btns" id="fh-team-result-btns">
+          <button class="btn btn-success" id="fh-btn-success" onclick="UI.fhApplyResult(true)" disabled>✅ Réussi</button>
+          <button class="btn btn-danger" id="fh-btn-fail" onclick="UI.fhApplyResult(false)" disabled>❌ Chuté</button>
         </div>
 
-        <div class="result-btns">
-          <button class="btn btn-success" id="fh-btn-success" onclick="UI.fhApplyResult(true)" disabled>✅ Réussi</button>
-          <button class="btn btn-danger"  id="fh-btn-fail"    onclick="UI.fhApplyResult(false)" disabled>❌ Chuté</button>
+        <div id="fh-individual-tricks" style="display:none">
+          <div class="divider"></div>
+          <div class="card-title">Levées remportées</div>
+          <div class="round-entry-grid" id="fh-trick-inputs"></div>
+          <div style="height:12px"></div>
+          <div class="round-total-display">
+            <div>
+              <div class="round-total-label">Total de la manche</div>
+              <div class="round-total-expected">Doit totaliser 10 levées</div>
+            </div>
+            <div class="round-total-num invalid" id="fh-trick-total">0 / 10 levées</div>
+          </div>
+          <div class="setting-sub" style="margin:10px 0 12px">
+            Si le preneur chute, la valeur du contrat est répartie selon les levées adverses. La valeur d'une levée est arrondie vers le haut.
+          </div>
+          <button class="btn btn-primary" id="fh-btn-individual-submit" onclick="UI.fhApplyIndividualRound()" disabled>✓ Valider la manche</button>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Ajustement manuel / pénalité</div>
+        <div class="form-group">
+          <label class="form-label">Équipe ou joueur</label>
+          <select class="form-select" id="fh-adjust-entity"></select>
+        </div>
+        <div class="generic-input-row">
+          <input class="generic-delta-input" type="number" id="fh-adjust-value" min="0" value="0" placeholder="Points">
+          <button class="btn btn-success btn-icon" onclick="UI.fhManualAdjust(1)" title="Ajouter">+</button>
+          <button class="btn btn-danger btn-icon" onclick="UI.fhManualAdjust(-1)" title="Retirer">−</button>
+        </div>
+        <div class="setting-sub" style="margin-top:8px">En individuel, un retrait ne peut jamais faire descendre le score sous 0.</div>
       </div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
