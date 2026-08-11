@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.2.2';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -408,17 +408,14 @@ const Games = {
 
     /**
      * Mode individuel :
-     * - si le preneur atteint son contrat, lui seul reçoit la valeur standard du contrat;
-     * - s'il chute, il reçoit 0 et les adversaires se partagent la valeur du contrat
-     *   au prorata des levées qu'ils ont remportées;
-     * - valeur d'une levée = plafond(points du contrat / levées adverses totales);
+     * - le résultat du miseur est demandé directement;
+     * - s'il gagne, lui seul reçoit immédiatement la valeur standard du contrat;
+     * - s'il perd, on saisit uniquement les levées des adversaires;
+     * - valeur d'une levée adverse = plafond(points du contrat / levées adverses totales);
      * - aucun score ne devient négatif.
      */
-    applyIndividualRound(game, bidderIdx, contractKey, tricks) {
+    applyIndividualRound(game, bidderIdx, contractKey, success, opponentTricks = []) {
       const contractPoints = FIVE_HUNDRED_SCORES[contractKey] || 0;
-      const bidTricks = parseInt(contractKey, 10);
-      const bidderTricks = tricks[bidderIdx] || 0;
-      const success = bidderTricks >= bidTricks;
       const snapshots = [];
       let pointsPerOpposingTrick = 0;
 
@@ -427,17 +424,20 @@ const Games = {
           const old = p.score;
           const delta = i === bidderIdx ? contractPoints : 0;
           p.score = Math.max(0, old + delta);
-          snapshots.push({ player: p.name, tricks: tricks[i] || 0, oldValue: old, delta, newValue: p.score });
+          snapshots.push({ player: p.name, tricks: null, oldValue: old, delta, newValue: p.score });
         });
       } else {
-        const opposingTricks = tricks.reduce((sum, n, i) => sum + (i === bidderIdx ? 0 : n), 0);
+        const opposingTricks = game.players.reduce((sum, _, i) => {
+          return sum + (i === bidderIdx ? 0 : (parseInt(opponentTricks[i], 10) || 0));
+        }, 0);
         pointsPerOpposingTrick = opposingTricks > 0 ? Math.ceil(contractPoints / opposingTricks) : 0;
 
         game.players.forEach((p, i) => {
           const old = p.score;
-          const delta = i === bidderIdx ? 0 : (tricks[i] || 0) * pointsPerOpposingTrick;
+          const tricks = i === bidderIdx ? null : (parseInt(opponentTricks[i], 10) || 0);
+          const delta = i === bidderIdx ? 0 : tricks * pointsPerOpposingTrick;
           p.score = Math.max(0, old + delta);
-          snapshots.push({ player: p.name, tricks: tricks[i] || 0, oldValue: old, delta, newValue: p.score });
+          snapshots.push({ player: p.name, tricks, oldValue: old, delta, newValue: p.score });
         });
       }
 
@@ -449,7 +449,7 @@ const Games = {
         contract: contractKey,
         contractPoints,
         success,
-        tricks: [...tricks],
+        opponentTricks: success ? [] : [...opponentTricks],
         pointsPerOpposingTrick,
         scores: snapshots,
       });
@@ -599,11 +599,11 @@ const Screens = {
           <div class="card-title">Noms des équipes</div>
           <div class="form-group">
             <label class="form-label">Équipe 1</label>
-            <input class="form-input" id="team0-name" type="text" value="Nord-Sud" maxlength="20">
+            <input class="form-input" id="team0-name" type="text" value="Eux" maxlength="20">
           </div>
           <div class="form-group">
             <label class="form-label">Équipe 2</label>
-            <input class="form-input" id="team1-name" type="text" value="Est-Ouest" maxlength="20">
+            <input class="form-input" id="team1-name" type="text" value="Nous" maxlength="20">
           </div>
           <div class="setting-sub">Victoire à 1000 points.</div>
         </div>
@@ -621,7 +621,7 @@ const Screens = {
           <div class="setting-sub" style="margin-top:12px">Victoire à 750 points. Un contrat chuté ne retire aucun point.</div>
         </div>
       `;
-      UI._newFhSavedNames = savedNames;
+      UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor'];
       UI.renderNewFhPlayerInputs();
     } else {
       const defaultCount = type === 'magic' ? 4 : type === 'hearts' ? 4 : 2;
@@ -784,7 +784,7 @@ const Screens = {
       resultBtns.style.display = 'none';
       tricksSection.style.display = 'block';
       bidderTitle.textContent = 'Joueur qui mise';
-      UI.renderFhTrickInputs();
+      UI.resetFhIndividualFlow();
     } else {
       resultBtns.style.display = 'flex';
       tricksSection.style.display = 'none';
@@ -863,6 +863,10 @@ const Screens = {
       } else if (game.type === 'fiveHundred') {
         if (e.kind === 'individualRound') {
           const perTrick = e.success ? '' : ` · ${e.pointsPerOpposingTrick} pts/levée`;
+          const scoreLines = e.scores.map(sc => {
+            const trickText = sc.tricks === null || sc.tricks === undefined ? '' : `${sc.tricks} levée(s), `;
+            return `<div class="history-detail">${Utils.esc(sc.player)} : ${trickText}${Utils.signed(sc.delta)} pts → ${sc.newValue}</div>`;
+          }).join('');
           return `
             <div class="history-entry">
               <div class="history-header">
@@ -870,7 +874,7 @@ const Screens = {
                 <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
               </div>
               <div class="history-detail">${e.success ? '✅ Contrat réussi' : '❌ Contrat chuté'}${perTrick}</div>
-              ${e.scores.map(sc => `<div class="history-detail">${Utils.esc(sc.player)} : ${sc.tricks} levée(s), ${Utils.signed(sc.delta)} pts → ${sc.newValue}</div>`).join('')}
+              ${scoreLines}
             </div>
           `;
         }
@@ -923,6 +927,9 @@ const UI = {
   _selectedContract: null,  // contrat sélectionné en jeu de 500
   _selectedTeam: null,      // équipe/joueur sélectionné en jeu de 500
   _newFhSavedNames: [],
+  _fhOpponentOrder: [],
+  _fhOpponentStep: 0,
+  _fhOpponentTricks: [],
 
   /** Démarre la création d'une partie */
   startNewGame(type) {
@@ -978,8 +985,8 @@ const UI = {
           localStorage.setItem('savedPlayerNames', JSON.stringify(names));
           game = Games.fiveHundred.createIndividual(names);
         } else {
-          const t0 = document.getElementById('team0-name').value.trim() || 'Équipe 1';
-          const t1 = document.getElementById('team1-name').value.trim() || 'Équipe 2';
+          const t0 = document.getElementById('team0-name').value.trim() || 'Eux';
+          const t1 = document.getElementById('team1-name').value.trim() || 'Nous';
           game = Games.fiveHundred.createTeams(t0, t1);
         }
 
@@ -1144,6 +1151,7 @@ const UI = {
   },
 
   selectContract(key) {
+    if (State.currentGame?.mode === 'individual') this.resetFhIndividualFlow();
     UI._selectedContract = key;
     const pts = FIVE_HUNDRED_SCORES[key];
     document.querySelectorAll('.contract-btn').forEach(btn => {
@@ -1155,46 +1163,112 @@ const UI = {
   },
 
   selectFhTeam(idx) {
+    if (State.currentGame?.mode === 'individual') this.resetFhIndividualFlow();
     UI._selectedTeam = idx;
     this.renderFhEntityButtons();
     this.updateFhSubmitBtn();
   },
 
-  renderFhTrickInputs() {
-    const game = State.currentGame;
-    const el = document.getElementById('fh-trick-inputs');
-    if (!game || game.mode !== 'individual' || !el) return;
-    el.innerHTML = game.players.map((p, i) => `
-      <div class="round-entry-player">
-        <div class="rep-name">${Utils.esc(p.name)}</div>
-        <div class="rep-controls">
-          <button class="rep-btn" onclick="UI.fhAdjustTrick(${i}, -1)">−</button>
-          <input class="rep-input" type="number" id="fh-tricks-${i}" value="0" min="0" max="10" oninput="UI.updateFhTrickTotal()">
-          <button class="rep-btn" onclick="UI.fhAdjustTrick(${i}, 1)">+</button>
-        </div>
-      </div>
-    `).join('');
-    this.updateFhTrickTotal();
-  },
-
-  fhAdjustTrick(idx, delta) {
-    const input = document.getElementById(`fh-tricks-${idx}`);
-    if (!input) return;
-    input.value = Utils.clamp((parseInt(input.value, 10) || 0) + delta, 0, 10);
-    this.updateFhTrickTotal();
-  },
-
-  updateFhTrickTotal() {
-    const game = State.currentGame;
-    if (!game || game.mode !== 'individual') return;
-    const tricks = game.players.map((_, i) => parseInt(document.getElementById(`fh-tricks-${i}`)?.value || 0, 10));
-    const total = tricks.reduce((a,b) => a+b, 0);
-    const el = document.getElementById('fh-trick-total');
-    if (el) {
-      el.textContent = `${total} / 10 levées`;
-      el.className = `round-total-num ${total === 10 ? 'valid' : 'invalid'}`;
+  resetFhIndividualFlow() {
+    UI._fhOpponentOrder = [];
+    UI._fhOpponentStep = 0;
+    UI._fhOpponentTricks = [];
+    const panel = document.getElementById('fh-opponent-tricks-panel');
+    if (panel) {
+      panel.style.display = 'none';
+      panel.innerHTML = '';
     }
     this.updateFhSubmitBtn();
+  },
+
+  fhIndividualResult(success) {
+    const game = State.currentGame;
+    if (!game || game.mode !== 'individual' || UI._selectedContract === null || UI._selectedTeam === null) return;
+
+    if (success) {
+      this.fhApplyIndividualSuccess();
+      return;
+    }
+
+    UI._fhOpponentOrder = game.players.map((_, i) => i).filter(i => i !== UI._selectedTeam);
+    UI._fhOpponentStep = 0;
+    UI._fhOpponentTricks = Array(game.players.length).fill(null);
+    this.renderFhOpponentTrickStep();
+  },
+
+  renderFhOpponentTrickStep() {
+    const game = State.currentGame;
+    const panel = document.getElementById('fh-opponent-tricks-panel');
+    if (!game || game.mode !== 'individual' || !panel || !UI._fhOpponentOrder.length) return;
+
+    const playerIdx = UI._fhOpponentOrder[UI._fhOpponentStep];
+    const player = game.players[playerIdx];
+    const ordinal = UI._fhOpponentStep + 1;
+    const totalOpponents = UI._fhOpponentOrder.length;
+    const isLast = UI._fhOpponentStep === totalOpponents - 1;
+    const saved = UI._fhOpponentTricks[playerIdx] ?? 0;
+
+    panel.style.display = 'block';
+    panel.innerHTML = `
+      <div class="divider"></div>
+      <div class="card-title">Joueur adverse ${ordinal}${totalOpponents > 1 ? ` sur ${totalOpponents}` : ''}</div>
+      <div class="round-entry-player">
+        <div class="rep-name">${Utils.esc(player.name)}</div>
+        <div class="rep-controls">
+          <button class="rep-btn" onclick="UI.fhAdjustOpponentTrick(-1)">−</button>
+          <input class="rep-input" type="number" id="fh-opponent-tricks-current" value="${saved}" min="0" max="10">
+          <button class="rep-btn" onclick="UI.fhAdjustOpponentTrick(1)">+</button>
+        </div>
+      </div>
+      <div class="setting-sub" style="margin:10px 0 12px">Combien de levées ${Utils.esc(player.name)} a-t-il remportées ?</div>
+      <button class="btn btn-primary" onclick="UI.fhOpponentTrickNext()">${isLast ? '✓ Calculer les points' : 'Suivant'}</button>
+    `;
+  },
+
+  fhAdjustOpponentTrick(delta) {
+    const input = document.getElementById('fh-opponent-tricks-current');
+    if (!input) return;
+    input.value = Utils.clamp((parseInt(input.value, 10) || 0) + delta, 0, 10);
+  },
+
+  async fhOpponentTrickNext() {
+    const game = State.currentGame;
+    if (!game || game.mode !== 'individual' || !UI._fhOpponentOrder.length) return;
+
+    const input = document.getElementById('fh-opponent-tricks-current');
+    const value = Utils.clamp(parseInt(input?.value || 0, 10) || 0, 0, 10);
+    const playerIdx = UI._fhOpponentOrder[UI._fhOpponentStep];
+    UI._fhOpponentTricks[playerIdx] = value;
+
+    if (UI._fhOpponentStep < UI._fhOpponentOrder.length - 1) {
+      UI._fhOpponentStep += 1;
+      this.renderFhOpponentTrickStep();
+      return;
+    }
+
+    const opposingTotal = UI._fhOpponentOrder.reduce((sum, i) => sum + (UI._fhOpponentTricks[i] || 0), 0);
+    const bidTricks = parseInt(UI._selectedContract, 10);
+    const minimumOpposingTricks = 11 - bidTricks;
+
+    if (opposingTotal < minimumOpposingTricks) {
+      Utils.toast(`Contrat ${bidTricks} chuté : les adversaires doivent avoir au moins ${minimumOpposingTricks} levée(s)`, 'error', 4000);
+      return;
+    }
+    if (opposingTotal > 10) {
+      Utils.toast('Le total des levées adverses ne peut pas dépasser 10', 'error');
+      return;
+    }
+
+    const result = Games.fiveHundred.applyIndividualRound(
+      game, UI._selectedTeam, UI._selectedContract, false, UI._fhOpponentTricks
+    );
+    await DB.save('games', game);
+    Utils.toast(`❌ Mise perdue : ${result.pointsPerOpposingTrick} pts par levée adverse`, 'info', 4000);
+
+    UI._selectedContract = null;
+    UI._selectedTeam = null;
+    this.resetFhIndividualFlow();
+    Screens.render_five_hundred();
   },
 
   updateFhSubmitBtn() {
@@ -1205,14 +1279,10 @@ const UI = {
     if (successBtn) successBtn.disabled = !hasSelection;
     if (failBtn) failBtn.disabled = !hasSelection;
 
-    const individualBtn = document.getElementById('fh-btn-individual-submit');
-    if (individualBtn) {
-      let total = 0;
-      if (game?.mode === 'individual') {
-        total = game.players.reduce((sum, _, i) => sum + parseInt(document.getElementById(`fh-tricks-${i}`)?.value || 0, 10), 0);
-      }
-      individualBtn.disabled = !(game?.mode === 'individual' && hasSelection && total === 10);
-    }
+    const bidderWinBtn = document.getElementById('fh-btn-bidder-win');
+    const bidderLoseBtn = document.getElementById('fh-btn-bidder-lose');
+    if (bidderWinBtn) bidderWinBtn.disabled = !(game?.mode === 'individual' && hasSelection);
+    if (bidderLoseBtn) bidderLoseBtn.disabled = !(game?.mode === 'individual' && hasSelection);
   },
 
   async fhApplyResult(success) {
@@ -1232,26 +1302,17 @@ const UI = {
     Screens.render_five_hundred();
   },
 
-  async fhApplyIndividualRound() {
+  async fhApplyIndividualSuccess() {
     const game = State.currentGame;
     if (!game || game.mode !== 'individual' || UI._selectedContract === null || UI._selectedTeam === null) return;
-    const tricks = game.players.map((_, i) => parseInt(document.getElementById(`fh-tricks-${i}`)?.value || 0, 10));
-    if (tricks.reduce((a,b) => a+b, 0) !== 10) {
-      Utils.toast('Les levées doivent totaliser 10', 'error');
-      return;
-    }
 
-    const result = Games.fiveHundred.applyIndividualRound(game, UI._selectedTeam, UI._selectedContract, tricks);
+    const result = Games.fiveHundred.applyIndividualRound(game, UI._selectedTeam, UI._selectedContract, true, []);
     await DB.save('games', game);
-
-    if (result.success) {
-      Utils.toast(`✅ Contrat réussi : +${result.contractPoints} pts`, 'success');
-    } else {
-      Utils.toast(`❌ Contrat chuté : ${result.pointsPerOpposingTrick} pts par levée adverse`, 'info', 4000);
-    }
+    Utils.toast(`✅ Mise gagnée : +${result.contractPoints} pts`, 'success');
 
     UI._selectedContract = null;
     UI._selectedTeam = null;
+    this.resetFhIndividualFlow();
     Screens.render_five_hundred();
   },
 
@@ -1587,20 +1648,15 @@ function buildScreenHTML() {
 
         <div id="fh-individual-tricks" style="display:none">
           <div class="divider"></div>
-          <div class="card-title">Levées remportées</div>
-          <div class="round-entry-grid" id="fh-trick-inputs"></div>
-          <div style="height:12px"></div>
-          <div class="round-total-display">
-            <div>
-              <div class="round-total-label">Total de la manche</div>
-              <div class="round-total-expected">Doit totaliser 10 levées</div>
-            </div>
-            <div class="round-total-num invalid" id="fh-trick-total">0 / 10 levées</div>
+          <div class="card-title">Le miseur a-t-il gagné ?</div>
+          <div class="result-btns">
+            <button class="btn btn-success" id="fh-btn-bidder-win" onclick="UI.fhIndividualResult(true)" disabled>✅ Oui, mise gagnée</button>
+            <button class="btn btn-danger" id="fh-btn-bidder-lose" onclick="UI.fhIndividualResult(false)" disabled>❌ Non, mise perdue</button>
           </div>
-          <div class="setting-sub" style="margin:10px 0 12px">
-            Si le preneur chute, la valeur du contrat est répartie selon les levées adverses. La valeur d'une levée est arrondie vers le haut.
+          <div class="setting-sub" style="margin-top:10px">
+            Si la mise est gagnée, les points du contrat sont attribués immédiatement. Si elle est perdue, seules les levées des adversaires seront demandées.
           </div>
-          <button class="btn btn-primary" id="fh-btn-individual-submit" onclick="UI.fhApplyIndividualRound()" disabled>✓ Valider la manche</button>
+          <div id="fh-opponent-tricks-panel" style="display:none"></div>
         </div>
       </div>
 
