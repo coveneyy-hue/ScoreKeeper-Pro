@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.2.9';
+const APP_VERSION = '1.32';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -171,6 +171,21 @@ const Utils = {
 
   /** Clamp un nombre entre min et max */
   clamp: (v, min, max) => Math.min(max, Math.max(min, v)),
+
+  /** Retourne une copie mélangée aléatoirement (Fisher-Yates). */
+  shuffle(items) {
+    const arr = [...items];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  },
+
+  /** Choisit un index aléatoire valide. */
+  randomIndex(length) {
+    return length > 0 ? Math.floor(Math.random() * length) : 0;
+  },
 
   /** Échappe le HTML */
   esc(str) {
@@ -371,7 +386,13 @@ const Games = {
 
   /* ─── Jeu de 500 ─── */
   fiveHundred: {
-    createTeams(team0Name, team1Name) {
+    createTeams(team0Name, team1Name, tablePlayerNames = []) {
+      const defaults = ['Joueur 1', 'Joueur 2', 'Joueur 3', 'Joueur 4'];
+      const enteredNames = Array.from({length: 4}, (_, i) => tablePlayerNames[i] || defaults[i]);
+      // À chaque nouvelle partie, l'ordre autour de la table est tiré au hasard.
+      // Les places 1+3 forment ensuite l'équipe 1 et les places 2+4 l'équipe 2.
+      const names = Utils.shuffle(enteredNames);
+      const firstBidderIdx = Utils.randomIndex(names.length);
       return {
         id: Utils.uid(),
         type: 'fiveHundred',
@@ -383,11 +404,16 @@ const Games = {
           { name: team0Name, score: 0 },
           { name: team1Name, score: 0 },
         ],
+        // Les partenaires sont face à face : places 1+3 et 2+4.
+        tablePlayers: names.map((name, i) => ({ name, seatIdx: i, teamIdx: i % 2 })),
+        nextBidderIdx: firstBidderIdx,
         history: [],
       };
     },
 
     createIndividual(players) {
+      const shuffledPlayers = Utils.shuffle(players);
+      const firstBidderIdx = Utils.randomIndex(shuffledPlayers.length);
       return {
         id: Utils.uid(),
         type: 'fiveHundred',
@@ -395,8 +421,11 @@ const Games = {
         status: 'active',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        players: players.map(name => ({ name, score: 0 })),
+        // L'ordre affiché est tiré au hasard à chaque début de partie.
+        players: shuffledPlayers.map(name => ({ name, score: 0 })),
         scoreLimit: 1000,
+        // Le premier joueur à miser est tiré séparément au hasard.
+        nextBidderIdx: firstBidderIdx,
         history: [],
       };
     },
@@ -412,6 +441,47 @@ const Games = {
 
     scoreLimit(game) {
       return game.mode === 'individual' ? 1000 : 500;
+    },
+
+    /** Joueurs dans l'ordre d'affichage autour de la table. */
+    tablePlayers(game) {
+      if (game.mode === 'individual') {
+        return (game.players || []).map((p, i) => ({ name: p.name, seatIdx: i, teamIdx: null }));
+      }
+      if (!Array.isArray(game.tablePlayers) || game.tablePlayers.length !== 4) {
+        game.tablePlayers = Array.from({length: 4}, (_, i) => ({
+          name: `Joueur ${i + 1}`,
+          seatIdx: i,
+          teamIdx: i % 2,
+        }));
+      }
+      return game.tablePlayers;
+    },
+
+
+    ensureTableSetup(game) {
+      const seats = this.tablePlayers(game);
+      const count = seats.length || 1;
+      if (!Number.isInteger(game.nextBidderIdx)) game.nextBidderIdx = 0;
+      game.nextBidderIdx = ((game.nextBidderIdx % count) + count) % count;
+      return seats;
+    },
+
+    nextBidder(game) {
+      const seats = this.ensureTableSetup(game);
+      const seatIdx = game.nextBidderIdx;
+      const player = seats[seatIdx];
+      return {
+        ...player,
+        seatIdx,
+      };
+    },
+
+    /** Après chaque contrat, le premier enchérisseur passe au joueur suivant dans l'ordre d'affichage. */
+    advanceNextBidder(game) {
+      const seats = this.ensureTableSetup(game);
+      game.nextBidderIdx = (game.nextBidderIdx + 1) % seats.length;
+      return this.nextBidder(game);
     },
 
     contractPoints(game, contractKey) {
@@ -458,6 +528,10 @@ const Games = {
         delta,
         newValue: team.score,
       });
+      const nextBidder = this.advanceNextBidder(game);
+      const lastHistory = game.history[game.history.length - 1];
+      lastHistory.nextBidder = nextBidder.name;
+      lastHistory.nextBidderSeat = nextBidder.clock;
       game.updatedAt = new Date().toISOString();
 
       let winner = null;
@@ -535,6 +609,10 @@ const Games = {
         pointsPerOpposingTrick,
         scores: snapshots,
       });
+      const nextBidder = this.advanceNextBidder(game);
+      const lastHistory = game.history[game.history.length - 1];
+      lastHistory.nextBidder = nextBidder.name;
+      lastHistory.nextBidderSeat = nextBidder.clock;
       game.updatedAt = new Date().toISOString();
 
       let winner = null;
@@ -707,13 +785,27 @@ const Screens = {
           <div class="card-title">Noms des équipes</div>
           <div class="form-group">
             <label class="form-label">Équipe 1</label>
-            <input class="form-input" id="team0-name" type="text" value="Eux" maxlength="20">
+            <input class="form-input" id="team0-name" type="text" value="Eux" maxlength="20" oninput="UI.updateNewFhTeamLabels()">
           </div>
           <div class="form-group">
             <label class="form-label">Équipe 2</label>
-            <input class="form-input" id="team1-name" type="text" value="Nous" maxlength="20">
+            <input class="form-input" id="team1-name" type="text" value="Nous" maxlength="20" oninput="UI.updateNewFhTeamLabels()">
           </div>
-          <div class="setting-sub">500 en équipes : victoire à +500 ou défaite à -500. Une mise de 10 réussie gagne immédiatement la partie.</div>
+
+          <div class="divider"></div>
+          <div class="card-title">Joueurs autour de la table</div>
+          <div class="setting-sub" style="margin-bottom:12px">Les 4 noms seront mélangés au hasard au démarrage. Dans l'ordre obtenu, les joueurs 1 et 3 seront partenaires; les joueurs 2 et 4 seront partenaires.</div>
+          <div id="fh-team-player-inputs" class="player-inputs">
+            ${['Yannick','Lily-Rose','Victor','Julie'].map((name, i) => `
+              <div class="player-input-row fh-team-player-row">
+                <div class="player-input-num">${i + 1}</div>
+                <input class="form-input" type="text" value="${name}" maxlength="16" data-team-player="${i}">
+                <span class="badge badge-accent fh-new-team-label" data-team-idx="${i % 2}">${i % 2 === 0 ? 'Eux' : 'Nous'}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="setting-sub" style="margin-top:12px"><strong id="fh-new-team-summary-0">Eux : Yannick + Victor</strong><br><strong id="fh-new-team-summary-1">Nous : Lily-Rose + Julie</strong></div>
+          <div class="setting-sub" style="margin-top:10px">500 en équipes : victoire à +500 ou défaite à -500. Une mise de Partie réussie gagne immédiatement la partie.</div>
         </div>
 
         <div class="card" id="fh-new-individual" style="display:none">
@@ -727,11 +819,13 @@ const Screens = {
             </select>
           </div>
           <div id="fh-player-name-inputs" class="player-inputs"></div>
-          <div class="setting-sub" style="margin-top:12px">Victoire à 1000 points. Le barème augmente avec le nombre de joueurs. En cas de chute, les adversaires se partagent un bassin de 100 % du contrat à 2 joueurs, 85 % à 3 et 70 % à 4.</div>
+          <div class="setting-sub" style="margin-top:12px">L'ordre des joueurs et le premier joueur à miser sont tirés au hasard au démarrage. Victoire à 1000 points. Le barème augmente avec le nombre de joueurs. En cas de chute, les adversaires se partagent un bassin de 100 % du contrat à 2 joueurs, 85 % à 3 et 70 % à 4.</div>
         </div>
       `;
       UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
       UI.renderNewFhPlayerInputs();
+      document.querySelectorAll('#fh-team-player-inputs input').forEach((el) => el.addEventListener('input', () => UI.updateNewFhTeamLabels()));
+      UI.updateNewFhTeamLabels();
     } else {
       const defaultCount = type === 'magic' ? 4 : type === 'hearts' ? 4 : 2;
       const minCount     = type === 'magic' ? 2 : 2;
@@ -860,6 +954,7 @@ const Screens = {
     if (!State.currentGame || State.currentGame.type !== 'fiveHundred') return;
     const game = State.currentGame;
     if (!game.mode) game.mode = 'teams';
+    Games.fiveHundred.ensureTableSetup(game);
 
     const list = game.mode === 'individual' ? game.players : game.teams;
     const limit = game.mode === 'individual' ? 1000 : 500;
@@ -911,6 +1006,7 @@ const Screens = {
       bidderTitle.textContent = 'Équipe qui enchérit';
     }
 
+    UI.renderFhTableInfo();
     UI.renderContractPicker();
     UI.renderFhEntityButtons();
     UI.renderFhManualAdjust();
@@ -995,6 +1091,7 @@ const Screens = {
               </div>
               <div class="history-detail">${e.success ? '✅ Contrat réussi' : '❌ Contrat chuté'}${perTrick}</div>
               ${scoreLines}
+              ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}${e.nextBidderSeat ? ` · ${Utils.esc(e.nextBidderSeat)}` : ''}</div>` : ''}
             </div>
           `;
         }
@@ -1019,6 +1116,7 @@ const Screens = {
               ${e.oldValue} <span class="${e.delta >= 0 ? 'history-delta-pos' : 'history-delta-neg'}">${Utils.signed(e.delta)}</span> → ${e.newValue}
               (${e.success ? '✅ Réussi' : '❌ Chuté'})
             </div>
+            ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}${e.nextBidderSeat ? ` · ${Utils.esc(e.nextBidderSeat)}` : ''}</div>` : ''}
           </div>
         `;
       } else {
@@ -1064,6 +1162,22 @@ const UI = {
     document.getElementById('fh-mode-individual').classList.toggle('active', mode === 'individual');
   },
 
+  updateNewFhTeamLabels() {
+    const teamNames = [
+      document.getElementById('team0-name')?.value.trim() || 'Équipe 1',
+      document.getElementById('team1-name')?.value.trim() || 'Équipe 2',
+    ];
+    document.querySelectorAll('.fh-new-team-label').forEach((el) => {
+      const idx = parseInt(el.dataset.teamIdx || 0, 10);
+      el.textContent = teamNames[idx];
+    });
+    const names = Array.from(document.querySelectorAll('#fh-team-player-inputs input')).map((el, i) => el.value.trim() || `Joueur ${i + 1}`);
+    const s0 = document.getElementById('fh-new-team-summary-0');
+    const s1 = document.getElementById('fh-new-team-summary-1');
+    if (s0) s0.textContent = `${teamNames[0]} : ${names[0] || 'Joueur 1'} + ${names[2] || 'Joueur 3'}`;
+    if (s1) s1.textContent = `${teamNames[1]} : ${names[1] || 'Joueur 2'} + ${names[3] || 'Joueur 4'}`;
+  },
+
   renderNewFhPlayerInputs() {
     const countEl = document.getElementById('fh-player-count');
     const inputs = document.getElementById('fh-player-name-inputs');
@@ -1107,7 +1221,9 @@ const UI = {
         } else {
           const t0 = document.getElementById('team0-name').value.trim() || 'Eux';
           const t1 = document.getElementById('team1-name').value.trim() || 'Nous';
-          game = Games.fiveHundred.createTeams(t0, t1);
+          const teamPlayerInputs = document.querySelectorAll('#fh-team-player-inputs input');
+          const tablePlayerNames = Array.from(teamPlayerInputs).map((inp, i) => inp.value.trim() || `Joueur ${i + 1}`);
+          game = Games.fiveHundred.createTeams(t0, t1, tablePlayerNames);
         }
 
       } else {
@@ -1235,6 +1351,40 @@ const UI = {
   },
 
   /* ─── JEU DE 500 ─── */
+  renderFhTableInfo() {
+    const game = State.currentGame;
+    const wrap = document.getElementById('fh-table-info');
+    if (!game || !wrap) return;
+
+    const seats = Games.fiveHundred.ensureTableSetup(game);
+    const next = Games.fiveHundred.nextBidder(game);
+    const teamSummary = game.mode === 'teams'
+      ? `<div class="fh-team-summary">
+          ${game.teams.map((team, teamIdx) => {
+            const members = seats.filter(p => p.teamIdx === teamIdx).map(p => Utils.esc(p.name)).join(' + ');
+            return `<div><strong>${Utils.esc(team.name)}</strong> : ${members}</div>`;
+          }).join('')}
+        </div>`
+      : '';
+
+    wrap.innerHTML = `
+      <div class="card-title">Ordre autour de la table</div>
+      <div class="setting-sub" style="margin-bottom:10px">Ordre tiré au hasard au début de la partie. Placez les joueurs autour de la table dans cet ordre. En équipes, les joueurs 1 et 3 sont partenaires, tout comme les joueurs 2 et 4.</div>
+      <div class="fh-player-order">
+        ${seats.map((player, i) => {
+          const team = game.mode === 'teams' ? game.teams[player.teamIdx] : null;
+          return `<div class="fh-order-row">
+            <span class="fh-order-num">${i + 1}</span>
+            <strong>${Utils.esc(player.name)}</strong>
+            ${team ? `<span class="badge badge-accent">${Utils.esc(team.name)}</span>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      ${teamSummary}
+      <div class="fh-next-bidder"><span>Première mise de la prochaine donne</span><strong>${Utils.esc(next.name)}</strong></div>
+    `;
+  },
+
   renderContractPicker() {
     const bids = ['7','8','9','10'];
     const pickerEl = document.getElementById('fh-contract-picker');
@@ -1395,7 +1545,8 @@ const UI = {
       game, UI._selectedTeam, UI._selectedContract, false, UI._fhOpponentTricks
     );
     await DB.save('games', game);
-    Utils.toast(`❌ Mise perdue : bassin ${result.opponentPointsPool} pts · ${result.pointsPerOpposingTrick} pts par levée adverse`, 'info', 4500);
+    const next = Games.fiveHundred.nextBidder(game);
+    Utils.toast(`❌ Mise perdue : bassin ${result.opponentPointsPool} pts · ${result.pointsPerOpposingTrick} pts/levée · Prochaine mise : ${next.name}`, 'info', 5000);
 
     UI._selectedContract = null;
     UI._selectedTeam = null;
@@ -1424,9 +1575,11 @@ const UI = {
     const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, UI._selectedContract, success);
     await DB.save('games', game);
 
+    const next = Games.fiveHundred.nextBidder(game);
     Utils.toast(
-      success ? `✅ +${Games.fiveHundred.contractPoints(game, UI._selectedContract)} pts` : `❌ ${result.delta} pts`,
-      success ? 'success' : 'error'
+      `${success ? `✅ +${Games.fiveHundred.contractPoints(game, UI._selectedContract)} pts` : `❌ ${result.delta} pts`} · Prochaine mise : ${next.name}`,
+      success ? 'success' : 'error',
+      4200
     );
 
     UI._selectedContract = null;
@@ -1440,7 +1593,8 @@ const UI = {
 
     const result = Games.fiveHundred.applyIndividualRound(game, UI._selectedTeam, UI._selectedContract, true, []);
     await DB.save('games', game);
-    Utils.toast(`✅ Mise gagnée : +${result.contractPoints} pts`, 'success');
+    const next = Games.fiveHundred.nextBidder(game);
+    Utils.toast(`✅ Mise gagnée : +${result.contractPoints} pts · Prochaine mise : ${next.name}`, 'success', 4200);
 
     UI._selectedContract = null;
     UI._selectedTeam = null;
@@ -1748,6 +1902,7 @@ function buildScreenHTML() {
       </div>
 
       <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · -500 à +500</div>
+      <div class="card" id="fh-table-info"></div>
       <div class="five-hundred-teams" id="fh-teams"></div>
 
       <div id="fh-victory" class="victory-banner" style="display:none">
