@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.32';
+const APP_VERSION = '1.33';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -1148,6 +1148,80 @@ const UI = {
   _fhOpponentOrder: [],
   _fhOpponentStep: 0,
   _fhOpponentTricks: [],
+  _fhAudioContext: null,
+  _fhSoundReady: false,
+  _fhStarterTimer: null,
+
+  /** Active le contexte audio à partir d'un geste utilisateur. */
+  unlockFhSound() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!UI._fhAudioContext) UI._fhAudioContext = new AudioCtx();
+      if (UI._fhAudioContext.state === 'suspended') UI._fhAudioContext.resume();
+      UI._fhSoundReady = true;
+    } catch (err) {
+      console.warn('[500] Audio non disponible', err);
+    }
+  },
+
+  /** Petit double carillon pour signaler le premier miseur. */
+  playFhStarterSound() {
+    try {
+      this.unlockFhSound();
+      const ctx = UI._fhAudioContext;
+      if (!ctx || ctx.state !== 'running') return;
+      const now = ctx.currentTime;
+      [
+        { freq: 659.25, start: 0.00, duration: 0.13, gain: 0.12 },
+        { freq: 880.00, start: 0.16, duration: 0.22, gain: 0.16 },
+      ].forEach((note) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(note.freq, now + note.start);
+        gain.gain.setValueAtTime(0.0001, now + note.start);
+        gain.gain.exponentialRampToValueAtTime(note.gain, now + note.start + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + note.start + note.duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + note.start);
+        osc.stop(now + note.start + note.duration + 0.02);
+      });
+    } catch (err) {
+      console.warn('[500] Son de départ impossible', err);
+    }
+  },
+
+  /** Met fortement en évidence le joueur qui ouvrira les mises. */
+  announceFhStarter(playSound = true) {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.status === 'finished') return;
+    const next = Games.fiveHundred.nextBidder(game);
+    const row = document.querySelector(`.fh-order-row[data-seat-idx="${next.seatIdx}"]`);
+    const banner = document.getElementById('fh-next-bidder-banner');
+    const callout = document.getElementById('fh-starter-callout');
+    const calloutName = document.getElementById('fh-starter-callout-name');
+
+    document.querySelectorAll('.fh-order-row.fh-starter-active').forEach(el => el.classList.remove('fh-starter-active'));
+    if (banner) banner.classList.remove('fh-starter-flash');
+    if (callout) callout.classList.remove('active');
+    void document.body.offsetWidth;
+
+    if (row) row.classList.add('fh-starter-active');
+    if (banner) banner.classList.add('fh-starter-flash');
+    if (calloutName) calloutName.textContent = next.name;
+    if (callout) callout.classList.add('active');
+    if (playSound) this.playFhStarterSound();
+    if (navigator.vibrate) navigator.vibrate([80, 45, 120]);
+
+    clearTimeout(UI._fhStarterTimer);
+    UI._fhStarterTimer = setTimeout(() => {
+      if (row) row.classList.remove('fh-starter-active');
+      if (banner) banner.classList.remove('fh-starter-flash');
+      if (callout) callout.classList.remove('active');
+    }, 2300);
+  },
 
   /** Démarre la création d'une partie */
   startNewGame(type) {
@@ -1207,6 +1281,7 @@ const UI = {
   /** Crée la partie à partir du formulaire */
   async createGame() {
     const type = document.getElementById('new-game-type').value;
+    if (type === 'fiveHundred') this.unlockFhSound();
 
     try {
       let game;
@@ -1251,6 +1326,7 @@ const UI = {
 
       const screenMap = { hearts: 'hearts', magic: 'magic', fiveHundred: 'five-hundred', generic: 'generic' };
       Router.go(screenMap[type] || 'home');
+      if (type === 'fiveHundred') setTimeout(() => UI.announceFhStarter(true), 180);
 
     } catch (err) {
       console.error(err);
@@ -1373,7 +1449,7 @@ const UI = {
       <div class="fh-player-order">
         ${seats.map((player, i) => {
           const team = game.mode === 'teams' ? game.teams[player.teamIdx] : null;
-          return `<div class="fh-order-row">
+          return `<div class="fh-order-row" data-seat-idx="${i}">
             <span class="fh-order-num">${i + 1}</span>
             <strong>${Utils.esc(player.name)}</strong>
             ${team ? `<span class="badge badge-accent">${Utils.esc(team.name)}</span>` : ''}
@@ -1381,7 +1457,11 @@ const UI = {
         }).join('')}
       </div>
       ${teamSummary}
-      <div class="fh-next-bidder"><span>Première mise de la prochaine donne</span><strong>${Utils.esc(next.name)}</strong></div>
+      <div class="fh-next-bidder" id="fh-next-bidder-banner"><span>Première mise de la prochaine donne</span><strong>${Utils.esc(next.name)}</strong></div>
+      <div class="fh-starter-callout" id="fh-starter-callout" aria-live="polite">
+        <span>À TOI DE COMMENCER</span>
+        <strong id="fh-starter-callout-name">${Utils.esc(next.name)}</strong>
+      </div>
     `;
   },
 
@@ -1514,6 +1594,7 @@ const UI = {
   },
 
   async fhOpponentTrickNext() {
+    this.unlockFhSound();
     const game = State.currentGame;
     if (!game || game.mode !== 'individual' || !UI._fhOpponentOrder.length) return;
 
@@ -1552,6 +1633,7 @@ const UI = {
     UI._selectedTeam = null;
     this.resetFhIndividualFlow();
     Screens.render_five_hundred();
+    setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
   updateFhSubmitBtn() {
@@ -1570,6 +1652,7 @@ const UI = {
 
   async fhApplyResult(success) {
     if (UI._selectedContract === null || UI._selectedTeam === null) return;
+    this.unlockFhSound();
     const game = State.currentGame;
     if (game.mode === 'individual') return;
     const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, UI._selectedContract, success);
@@ -1585,9 +1668,11 @@ const UI = {
     UI._selectedContract = null;
     UI._selectedTeam = null;
     Screens.render_five_hundred();
+    setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
   async fhApplyIndividualSuccess() {
+    this.unlockFhSound();
     const game = State.currentGame;
     if (!game || game.mode !== 'individual' || UI._selectedContract === null || UI._selectedTeam === null) return;
 
@@ -1600,6 +1685,7 @@ const UI = {
     UI._selectedTeam = null;
     this.resetFhIndividualFlow();
     Screens.render_five_hundred();
+    setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
   renderFhManualAdjust() {
@@ -2059,6 +2145,9 @@ async function init() {
     }
   });
   history.pushState({}, '', location.href);
+
+  // Autoriser le son du 500 dès la première interaction utilisateur (requis par Android/Chrome).
+  document.addEventListener('pointerdown', () => UI.unlockFhSound(), { once: true, passive: true });
 
   // Rendre l'écran d'accueil
   await Screens.render_home();
