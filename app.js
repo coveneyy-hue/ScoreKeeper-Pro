@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.36';
+const APP_VERSION = '1.38';
 const STATS_RESET_PASSWORD = 'yco302302';
 
 /* ================================================================
@@ -400,8 +400,12 @@ const Games = {
     createTeams(team0Name, team1Name, tablePlayerNames = [], seriesBestOf = 1) {
       const defaults = ['Joueur 1', 'Joueur 2', 'Joueur 3', 'Joueur 4'];
       const enteredNames = Array.from({length: 4}, (_, i) => tablePlayerNames[i] || defaults[i]);
-      const names = Utils.shuffle(enteredNames);
-      const firstBidderIdx = Utils.randomIndex(names.length);
+      const shuffledNames = Utils.shuffle(enteredNames);
+      // Le joueur qui commence doit toujours apparaître en premier dans l'ordre affiché.
+      // On choisit un départ au hasard, puis on fait pivoter l'ordre aléatoire autour de lui.
+      const starterOffset = Utils.randomIndex(shuffledNames.length);
+      const names = shuffledNames.slice(starterOffset).concat(shuffledNames.slice(0, starterOffset));
+      const firstBidderIdx = 0;
       const bestOf = [1, 3, 5, 7].includes(parseInt(seriesBestOf, 10)) ? parseInt(seriesBestOf, 10) : 1;
       const winsNeeded = Math.floor(bestOf / 2) + 1;
       return {
@@ -434,7 +438,10 @@ const Games = {
 
     createIndividual(players) {
       const shuffledPlayers = Utils.shuffle(players);
-      const firstBidderIdx = Utils.randomIndex(shuffledPlayers.length);
+      // Comme en équipes, le premier nom affiché est toujours le premier miseur.
+      const starterOffset = Utils.randomIndex(shuffledPlayers.length);
+      const orderedPlayers = shuffledPlayers.slice(starterOffset).concat(shuffledPlayers.slice(0, starterOffset));
+      const firstBidderIdx = 0;
       return {
         id: Utils.uid(),
         type: 'fiveHundred',
@@ -443,9 +450,9 @@ const Games = {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         // L'ordre affiché est tiré au hasard à chaque début de partie.
-        players: shuffledPlayers.map(name => ({ name, score: 0 })),
+        players: orderedPlayers.map(name => ({ name, score: 0 })),
         scoreLimit: 1000,
-        // Le premier joueur à miser est tiré séparément au hasard.
+        // Le premier joueur affiché commence à miser.
         nextBidderIdx: firstBidderIdx,
         history: [],
       };
@@ -617,9 +624,7 @@ const Games = {
         newValue: awardedTeam.score,
         seriesGameNumber: game.series.gameNumber,
       });
-      const nextBidder = this.advanceNextBidder(game);
       const lastHistory = game.history[game.history.length - 1];
-      lastHistory.nextBidder = nextBidder.name;
       game.updatedAt = new Date().toISOString();
 
       let winner = game.teams.find(t => t.score >= 1000) || null;
@@ -628,6 +633,14 @@ const Games = {
         const winnerIdx = game.teams.indexOf(winner);
         gameCompletion = this.completeTeamGame(game, winnerIdx);
       }
+
+      // La rotation continue après chaque contrat tant que la série n'est pas terminée.
+      // À la fin définitive d'une série, il n'existe pas de « prochain miseur » à annoncer.
+      let nextBidder = null;
+      if (!gameCompletion?.seriesWon) {
+        nextBidder = this.advanceNextBidder(game);
+        lastHistory.nextBidder = nextBidder.name;
+      }
       return {
         delta: pts,
         awardedTeam,
@@ -635,6 +648,7 @@ const Games = {
         newValue: awardedTeam.score,
         winner,
         gameCompletion,
+        nextBidder,
       };
     },
 
@@ -1012,7 +1026,7 @@ const Screens = {
             </select>
           </div>
           <div id="fh-player-name-inputs" class="player-inputs"></div>
-          <div class="setting-sub" style="margin-top:12px">L'ordre des joueurs et le premier joueur à miser sont tirés au hasard au démarrage. Victoire à 1000 points. Le barème augmente avec le nombre de joueurs. En cas de chute, les adversaires se partagent un bassin de 100 % du contrat à 2 joueurs, 85 % à 3 et 70 % à 4.</div>
+          <div class="setting-sub" style="margin-top:12px">L'ordre des joueurs est tiré au hasard au démarrage; le joueur affiché en premier commence à miser. Victoire à 1000 points. Le barème augmente avec le nombre de joueurs. En cas de chute, les adversaires se partagent un bassin de 100 % du contrat à 2 joueurs, 85 % à 3 et 70 % à 4.</div>
         </div>
       `;
       UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
@@ -1728,7 +1742,7 @@ const UI = {
 
     wrap.innerHTML = `
       <div class="card-title">Ordre autour de la table</div>
-      <div class="setting-sub" style="margin-bottom:10px">Ordre tiré au hasard au début de la partie. Placez les joueurs autour de la table dans cet ordre. En équipes, les joueurs 1 et 3 sont partenaires, tout comme les joueurs 2 et 4.</div>
+      <div class="setting-sub" style="margin-bottom:10px">Ordre tiré au hasard au début de la série. Le joueur 1 est celui qui commence à miser. Placez ensuite les joueurs autour de la table dans l'ordre affiché. En équipes, les joueurs 1 et 3 sont partenaires, tout comme les joueurs 2 et 4.</div>
       <div class="fh-player-order">
         ${seats.map((player, i) => {
           const team = game.mode === 'teams' ? game.teams[player.teamIdx] : null;
@@ -1943,13 +1957,16 @@ const UI = {
     const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, contract, success);
     await DB.save('games', game);
 
-    const next = Games.fiveHundred.nextBidder(game);
+    const next = result.nextBidder;
     const awarded = result.awardedTeam?.name || '';
+    const isSeriesFinished = !!result.gameCompletion?.seriesWon;
     Utils.toast(
-      success
-        ? `✅ ${biddingTeamName} +${Games.fiveHundred.contractPoints(game, contract)} pts · Prochaine mise : ${next.name}`
-        : `❌ Contrat chuté : +${Games.fiveHundred.contractPoints(game, contract)} pts à ${awarded} · Prochaine mise : ${next.name}`,
-      success ? 'success' : 'info',
+      isSeriesFinished
+        ? `🏆 Série terminée : ${result.gameCompletion.seriesWinner.name} gagne ${game.series.wins[0]}-${game.series.wins[1]}`
+        : success
+          ? `✅ ${biddingTeamName} +${Games.fiveHundred.contractPoints(game, contract)} pts · Prochaine mise : ${next.name}`
+          : `❌ Contrat chuté : +${Games.fiveHundred.contractPoints(game, contract)} pts à ${awarded} · Prochaine mise : ${next.name}`,
+      isSeriesFinished ? 'success' : (success ? 'success' : 'info'),
       5000
     );
 
@@ -2187,6 +2204,36 @@ const UI = {
     Utils.toast('Toutes les statistiques ont été réinitialisées', 'success', 4000);
   },
 
+  async resetAllData() {
+    const password = prompt('Mot de passe requis pour réinitialiser toutes les données :');
+    if (password === null) return;
+    if (password !== STATS_RESET_PASSWORD) {
+      Utils.toast('Mot de passe incorrect', 'error', 3200);
+      return;
+    }
+
+    const confirmed = confirm(
+      'RÉINITIALISER TOUTES LES DONNÉES ?\n\n' +
+      'Cette action supprimera définitivement toutes les parties, tous les historiques, toutes les statistiques et toutes les préférences enregistrées sur cet appareil.\n\n' +
+      'Les valeurs par défaut de ScoreKeeper Pro seront conservées. Cette action est irréversible sauf si vous possédez une sauvegarde JSON.'
+    );
+    if (!confirmed) return;
+
+    await Promise.all([
+      DB.clear('games'),
+      DB.clear('logs'),
+      DB.clear('settings'),
+    ]);
+
+    // Les préférences personnalisées sont supprimées afin que les valeurs
+    // codées par défaut dans l'application redeviennent effectives.
+    localStorage.clear();
+    State.currentGame = null;
+
+    Utils.toast('Toutes les données ont été réinitialisées', 'success', 4200);
+    Router.go('home');
+  },
+
   /** Garantit qu'une partie archivée possède un gagnant exploitable par les statistiques. */
   resolveWinnerBeforeArchive(game) {
     if (game.winnerName) return true;
@@ -2308,6 +2355,8 @@ function buildScreenHTML() {
           <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Sauvegarde complète</button>
           <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Restaurer</button>
         </div>
+        <div style="height:10px"></div>
+        <button class="btn btn-danger btn-sm" onclick="UI.resetAllData()">♻ Réinitialiser toutes les données</button>
       </div>
 
       <div class="home-version">Version ${APP_VERSION}</div>
@@ -2514,7 +2563,7 @@ function buildScreenHTML() {
         <div class="card-title">Filtres</div>
         <div class="stats-filter-grid">
           <div class="form-group"><label class="form-label">Jeu</label><select class="form-select" id="stats-game-filter" onchange="UI.refreshStats()"><option value="all">Tous les jeux</option><option value="fiveHundred">500</option><option value="hearts">Dame de Pique</option><option value="magic">Magic</option><option value="generic">Générique</option></select></div>
-          <div class="form-group"><label class="form-label">Mode</label><select class="form-select" id="stats-mode-filter" onchange="UI.refreshStats()"><option value="all">Tous</option><option value="individual">Individuel</option><option value="teams">Équipe</option></select></div>
+          <div class="form-group"><label class="form-label">Mode</label><select class="form-select" id="stats-mode-filter" onchange="UI.refreshStats()"><option value="all">Tous</option><option value="individual">Solo seulement (exclut les équipes)</option><option value="teams">Équipe seulement</option></select></div>
           <div class="form-group"><label class="form-label">Joueur</label><select class="form-select" id="stats-player-filter" onchange="UI.refreshStats()"><option value="all">Tous les joueurs</option></select></div>
           <div class="form-group"><label class="form-label">Équipe</label><select class="form-select" id="stats-team-filter" onchange="UI.refreshStats()"><option value="all">Toutes les équipes</option></select></div>
           <div class="form-group"><label class="form-label">Période</label><select class="form-select" id="stats-period-filter" onchange="UI.refreshStats()"><option value="all">Depuis toujours</option><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option></select></div>
