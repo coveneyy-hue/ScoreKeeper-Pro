@@ -1271,3 +1271,71 @@ body {
 .fh-end-series-zone .btn-danger {
   font-weight: 800;
 }
+
+
+/* v1.42 contrat 500 sur une seule ligne */
+.contract-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 72px;
+}
+.contract-inline-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+.contract-inline-label .bid-text {
+  color: var(--text-primary);
+  font-size: 18px;
+}
+.contract-inline-label .suit-inline {
+  font-size: 18px;
+  font-weight: 900;
+}
+.suit-heart,
+.suit-diamond {
+  color: #ff6b7f;
+}
+.suit-black {
+  color: var(--text-primary);
+}
+.suit-nt {
+  color: var(--accent-2);
+  font-size: 16px;
+}
+.contract-btn small {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.contract-btn.selected .contract-inline-label .bid-text,
+.contract-btn.selected .contract-inline-label .suit-inline,
+.contract-btn.selected small {
+  color: inherit;
+}
+.fh-contract-value-cell {
+  min-height: 70px;
+  gap: 6px;
+}
+.fh-contract-value-cell .contract-inline-label .bid-text {
+  font-size: 16px;
+}
+.fh-contract-value-cell .contract-inline-label .suit-inline {
+  font-size: 16px;
+}
+@media (max-width: 680px) {
+  .contract-btn {
+    min-height: 66px;
+    padding: 8px 4px;
+  }
+  .contract-inline-label .bid-text,
+  .contract-inline-label .suit-inline {
+    font-size: 16px;
+  }
+}

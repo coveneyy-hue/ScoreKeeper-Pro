@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.41';
+const APP_VERSION = '1.42';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -1627,6 +1627,7 @@ const UI = {
   fhContractTableHtml(interactive = false) {
     const game = State.currentGame;
     const bids = ['7','8','9','10'];
+    const suitClass = (suit) => suit === '♥' ? 'suit-heart' : suit === '♦' ? 'suit-diamond' : suit === 'NT' ? 'suit-nt' : 'suit-black';
     return `
       <div class="fh-contract-table ${interactive ? 'interactive' : 'readonly'}">
         <div class="fh-contract-head"><div>♠</div><div>♣</div><div>♦</div><div>♥</div><div>NT</div></div>
@@ -1635,10 +1636,12 @@ const UI = {
             const key = `${bid}${suit}`;
             const pts = Games.fiveHundred.contractPoints(game, key);
             const bidLabel = bid === '10' ? 'Partie' : bid;
+            const suitLabel = suit === 'NT' ? 'NT' : suit;
+            const labelHtml = `<span class="contract-inline-label"><span class="bid-text">${bidLabel}</span><span class="suit-inline ${suitClass(suit)}">${suitLabel}</span></span>`;
             if (interactive) {
-              return `<button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}" onclick="UI.selectContract('${key}')" data-key="${key}"><span class="suit-icon">${suit === 'NT' ? 'NT' : suit}</span><span>${bidLabel}</span><small>${pts}</small></button>`;
+              return `<button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}" onclick="UI.selectContract('${key}')" data-key="${key}">${labelHtml}<small>${pts}</small></button>`;
             }
-            return `<div class="fh-contract-value-cell"><span class="suit">${suit === 'NT' ? 'NT' : suit}</span><span class="bid">${bidLabel}</span><strong>${pts}</strong></div>`;
+            return `<div class="fh-contract-value-cell">${labelHtml}<strong>${pts}</strong></div>`;
           }).join('')).join('')}
         </div>
       </div>`;
