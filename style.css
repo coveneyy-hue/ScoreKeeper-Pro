@@ -5,32 +5,46 @@
 
 /* ── Variables CSS ── */
 :root {
-  --bg-primary:    #121212;
-  --bg-card:       #1E1E1E;
-  --bg-card-2:     #252525;
-  --bg-elevated:   #2C2C2C;
-  --accent:        #BB86FC;
-  --accent-dim:    #7B4FA6;
-  --accent-2:      #03DAC6;
-  --accent-2-dim:  #018786;
-  --danger:        #CF6679;
+  --bg-primary:    #0E1015;
+  --bg-card:       #171A21;
+  --bg-card-2:     #1D212A;
+  --bg-elevated:   #232734;
+  --accent:        #A78BFA;
+  --accent-dim:    #4C3E82;
+  --accent-2:      #2DD4C7;
+  --accent-2-dim:  #146159;
+  --danger:        #F16B7C;
   --danger-dim:    #7F2B38;
-  --success:       #4CAF78;
-  --warning:       #FFB74D;
-  --text-primary:  #E1E1E1;
-  --text-secondary:#A0A0A0;
-  --text-disabled: #555555;
-  --border:        #333333;
-  --border-accent: #BB86FC55;
+  --success:       #4ADE95;
+  --warning:       #FFC061;
+  --text-primary:  #EDEEF2;
+  --text-secondary:#9BA0AE;
+  --text-disabled: #565B68;
+  --border:        #2A2E38;
+  --border-accent: #A78BFA55;
   --radius-sm:     8px;
   --radius-md:     12px;
   --radius-lg:     20px;
   --radius-xl:     28px;
-  --shadow-card:   0 4px 20px rgba(0,0,0,0.5);
-  --shadow-btn:    0 2px 10px rgba(187,134,252,0.3);
+  --shadow-card:   0 8px 26px rgba(0,0,0,0.45);
+  --shadow-card-lg:0 16px 44px rgba(0,0,0,0.5);
+  --shadow-btn:    0 4px 16px rgba(167,139,250,0.35);
+  --accent-grad:   linear-gradient(135deg, var(--accent), var(--accent-2));
   --transition:    0.2s ease;
   --font-main:     'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono:     'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* Rythme responsive : grandit doucement entre mobile et tablette/desktop */
+  --shell-max:     600px;
+  --content-pad:   16px;
+  --fs-title:      clamp(24px, 3vw, 30px);
+}
+
+@media (min-width: 768px) {
+  :root {
+    --shell-max:   1240px;
+    --content-pad: 26px;
+  }
 }
 
 /* ── Reset & base ── */
@@ -59,20 +73,107 @@ body {
 
 /* ── App Shell ── */
 #app {
-  max-width: 600px;
+  max-width: var(--shell-max);
   margin: 0 auto;
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  transition: max-width var(--transition);
 }
+
+/* Conteneur flex : rail de navigation (tablette+) + zone des écrans */
+.app-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.screens-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Rail de navigation latéral (masqué en mobile) ── */
+.side-rail {
+  display: none;
+  flex-direction: column;
+  width: 236px;
+  flex-shrink: 0;
+  padding: 22px 14px;
+  gap: 3px;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+}
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 20px;
+}
+.rail-logo { font-size: 26px; line-height: 1; }
+.rail-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+}
+.rail-title em {
+  font-style: normal;
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.rail-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-disabled);
+  padding: 16px 10px 6px;
+}
+.rail-divider { height: 1px; background: var(--border); margin: 10px 4px; }
+.rail-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.rail-icon { font-size: 17px; width: 20px; text-align: center; flex-shrink: 0; }
+.rail-link:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.rail-link.active {
+  background: linear-gradient(135deg, rgba(167,139,250,0.16), rgba(45,212,199,0.10));
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--border-accent);
+}
+.rail-spacer { flex: 1; }
+.rail-version { font-size: 11px; color: var(--text-disabled); padding: 10px; }
 
 /* ── Screens ── */
 .screen {
   display: none;
   flex: 1;
   flex-direction: column;
-  padding: 16px;
+  padding: var(--content-pad);
   gap: 16px;
   overflow-y: auto;
   animation: fadeIn 0.2s ease;
@@ -135,10 +236,10 @@ body {
 }
 
 .home-title {
-  font-size: 28px;
+  font-size: var(--fs-title);
   font-weight: 800;
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: var(--accent-grad);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -179,6 +280,11 @@ body {
 }
 .game-card:active::before { opacity: 1; }
 .game-card:active { transform: scale(0.97); box-shadow: var(--shadow-card); }
+@media (hover: hover) and (pointer: fine) {
+  .game-card:hover { border-color: var(--border-accent); box-shadow: var(--shadow-card); transform: translateY(-2px); }
+  .card:hover, .resume-banner:hover { border-color: var(--border-accent); }
+  .btn:hover:not(:disabled) { filter: brightness(1.06); }
+}
 
 .game-card.hearts  { border-top: 3px solid #CF6679; }
 .game-card.magic   { border-top: 3px solid #BB86FC; }
@@ -301,8 +407,8 @@ body {
 .btn:disabled { opacity: 0.35; pointer-events: none; }
 
 .btn-primary {
-  background: var(--accent);
-  color: #000;
+  background: var(--accent-grad);
+  color: #0B0B0F;
   box-shadow: var(--shadow-btn);
 }
 .btn-secondary {
@@ -1338,4 +1444,134 @@ body {
   .contract-inline-label .suit-inline {
     font-size: 16px;
   }
+}
+
+/* ============================================================
+   ScoreKeeper Pro — Optimisations Tablette / Desktop
+   Rail de navigation persistant + mises en page multi-colonnes
+   à partir de 768px, affinées à partir de 1024px et 1280px.
+   ============================================================ */
+
+@media (min-width: 768px) {
+  body { font-size: 15.5px; }
+
+  .app-shell { flex-direction: row; }
+  .side-rail { display: flex; }
+  .screens-wrap { border-left: none; }
+
+  .screen {
+    padding: 28px clamp(24px, 4vw, 44px) 32px;
+    gap: 20px;
+  }
+
+  /* En-tête plus spacieux, aligné avec le rail */
+  .app-header { padding: 4px 0 0; gap: 14px; }
+  .header-title { font-size: 22px; }
+  .btn-back { width: 42px; height: 42px; }
+
+  /* Accueil : le rail remplace déjà la nav, on resserre le hero */
+  .home-hero { display: none; }
+  .home-version { display: none; }
+  .install-banner { max-width: 640px; }
+
+  .games-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+  .game-card { padding: 26px 18px; }
+  .game-card-icon { font-size: 46px; }
+
+  .card { padding: 22px; }
+
+  /* Formulaires de création de partie : deux colonnes */
+  .player-inputs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; }
+
+  /* Dame de pique */
+  .round-entry-grid { grid-template-columns: repeat(2, 1fr); }
+  .scoreboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+
+  /* Magic */
+  .magic-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .magic-hp { font-size: 58px; }
+
+  /* 500 */
+  .five-hundred-teams.individual { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .contract-grid { grid-template-columns: repeat(8, 1fr); }
+  .fh-contract-grid, .fh-contract-head { grid-template-columns: repeat(5, 1fr); }
+  .fh-table-diagram { width: min(100%, 420px); height: 300px; }
+
+  /* Générique : cartes joueurs en grille au lieu d'une pile */
+  .generic-score-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+
+  /* Statistiques : tous les filtres sur une ligne */
+  .stats-filter-grid { grid-template-columns: repeat(5, 1fr); }
+  .stats-summary { display: flex; flex-wrap: wrap; gap: 22px; }
+
+  /* Historique : plus de hauteur visible, layout deux colonnes possible */
+  .history-list { max-height: none; }
+
+  /* Modales centrées avec plus d'air */
+  .app-modal-card { width: min(560px, 92vw); }
+
+  /* Feuille modale mobile devient une boîte de dialogue centrée */
+  .modal-overlay { align-items: center; padding: 20px; }
+  .modal-sheet {
+    border-radius: var(--radius-xl);
+    max-width: 480px;
+    max-height: 80vh;
+    padding: 22px 22px 26px;
+    animation: fadeIn 0.2s ease;
+  }
+  .modal-handle { display: none; }
+
+  .toast-container { bottom: 28px; max-width: 420px; }
+
+  .btn { min-height: 46px; }
+  .btn-sm { min-height: 38px; }
+}
+
+@media (min-width: 1024px) {
+  .side-rail { width: 260px; padding: 26px 16px; }
+  .screen { padding-left: clamp(32px, 5vw, 64px); padding-right: clamp(32px, 5vw, 64px); }
+
+  .games-grid { gap: 22px; }
+  .game-card-desc { font-size: 12px; }
+
+  .magic-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+
+  /* Deux zones : tableau/plateau à gauche, panneau d'actions à droite */
+  #screen-hearts, #screen-five-hundred {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    grid-template-rows: auto auto 1fr auto;
+    column-gap: 26px;
+    row-gap: 16px;
+    align-content: start;
+  }
+  #screen-hearts .app-header,
+  #screen-five-hundred .app-header { grid-column: 1 / -1; }
+
+  #screen-hearts .round-bar { grid-column: 1 / -1; }
+  #screen-hearts .scoreboard { grid-column: 1; }
+  #screen-hearts .card { grid-column: 2; grid-row: 2 / span 3; }
+  #screen-hearts #hearts-submit { grid-column: 1; }
+  #screen-hearts > .btn-secondary { grid-column: 1; }
+
+  #screen-five-hundred .total-badge,
+  #screen-five-hundred .fh-next-bidder,
+  #screen-five-hundred .fh-series-inline { grid-column: 1 / -1; }
+  #screen-five-hundred .five-hundred-teams { grid-column: 1 / -1; }
+  #screen-five-hundred #fh-victory { grid-column: 1 / -1; }
+  #screen-five-hundred .fh-action-row { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
+  #screen-five-hundred .fh-end-series-zone { grid-column: 1 / -1; }
+}
+
+@media (min-width: 1280px) {
+  .games-grid { max-width: 980px; }
+  .generic-score-players { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+}
+
+/* Orientation portrait tablette : le rail cède la place à un peu plus de contenu vertical */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .side-rail { width: 200px; }
 }

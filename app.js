@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.43';
+const APP_VERSION = '2.0';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -286,6 +286,10 @@ const Router = {
     if (target) {
       target.classList.add('active');
       State.currentScreen = screenId;
+      // Synchronise le rail de navigation (visible tablette/desktop)
+      document.querySelectorAll('.rail-link[data-screen]').forEach(b => {
+        b.classList.toggle('active', b.dataset.screen === screenId);
+      });
       // Appelé au changement d'écran pour rendre le contenu dynamique
       Screens.render(screenId, data);
     }
@@ -2671,6 +2675,44 @@ function buildScreenHTML() {
     <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
 
+    <div class="app-shell">
+      <!-- Rail de navigation (tablette et plus) -->
+      <nav class="side-rail" aria-label="Navigation principale">
+        <div class="rail-brand">
+          <span class="rail-logo">🂡</span>
+          <span class="rail-title">ScoreKeeper <em>Pro</em></span>
+        </div>
+        <button class="rail-link active" data-screen="home" onclick="Router.go('home')">
+          <span class="rail-icon">🏠</span><span>Accueil</span>
+        </button>
+        <button class="rail-link" data-screen="stats" onclick="Router.go('stats')">
+          <span class="rail-icon">📊</span><span>Statistiques</span>
+        </button>
+        <button class="rail-link" data-screen="settings" onclick="UI.openSettings()">
+          <span class="rail-icon">⚙</span><span>Paramètres</span>
+        </button>
+
+        <div class="rail-divider"></div>
+        <div class="rail-section-label">Nouvelle partie</div>
+        <button class="rail-link" onclick="UI.startNewGame('hearts')">
+          <span class="rail-icon">♠</span><span>Dame de Pique</span>
+        </button>
+        <button class="rail-link" onclick="UI.startNewGame('magic')">
+          <span class="rail-icon">🔮</span><span>Magic</span>
+        </button>
+        <button class="rail-link" onclick="UI.startNewGame('fiveHundred')">
+          <span class="rail-icon">🃏</span><span>Jeu de 500</span>
+        </button>
+        <button class="rail-link" onclick="UI.startNewGame('generic')">
+          <span class="rail-icon">🎮</span><span>Générique</span>
+        </button>
+
+        <div class="rail-spacer"></div>
+        <div class="rail-version">ScoreKeeper Pro · v${APP_VERSION}</div>
+      </nav>
+
+      <div class="screens-wrap">
+
     <!-- ══ ACCUEIL ══ -->
     <div class="screen active" id="screen-home">
       <div class="home-hero">
@@ -2998,6 +3040,9 @@ function buildScreenHTML() {
 
       <div class="bottom-safe"></div>
     </div>
+
+      </div><!-- /.screens-wrap -->
+    </div><!-- /.app-shell -->
   `;
 }
 
