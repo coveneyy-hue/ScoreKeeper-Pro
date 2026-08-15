@@ -1540,7 +1540,7 @@ body {
   .magic-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 
   /* Deux zones : tableau/plateau à gauche, panneau d'actions à droite */
-  #screen-hearts, #screen-five-hundred {
+  #screen-hearts.active, #screen-five-hundred.active {
     display: grid;
     grid-template-columns: 1.5fr 1fr;
     grid-template-rows: auto auto 1fr auto;
@@ -1574,4 +1574,40 @@ body {
 /* Orientation portrait tablette : le rail cède la place à un peu plus de contenu vertical */
 @media (min-width: 768px) and (max-width: 1023px) {
   .side-rail { width: 200px; }
+}
+
+/* v2.1 - chronomètre persistant */
+.game-timer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(167,139,250,.12), rgba(45,212,199,.08));
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  padding: 9px 13px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.game-timer-bar strong {
+  color: var(--accent-2);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .5px;
+}
+.history-timer-entry {
+  border: 1px solid rgba(45,212,199,.25);
+  background: linear-gradient(135deg, rgba(45,212,199,.08), var(--bg-elevated));
+}
+.history-timer-entry .history-player,
+.history-timer-entry .history-detail strong {
+  color: var(--accent-2);
+}
+
+@media (min-width: 1024px) {
+  #screen-hearts .game-timer-bar,
+  #screen-five-hundred .game-timer-bar {
+    grid-column: 1 / -1;
+  }
 }

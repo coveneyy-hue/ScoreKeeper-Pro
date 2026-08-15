@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.2';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -262,6 +262,16 @@ const Utils = {
     setTimeout(() => { el.remove(); }, duration);
   },
 
+  /** Formate une durée en h:mm:ss ou mm:ss. */
+  formatDuration(ms) {
+    const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  },
+
   /** Exporte les données en JSON et propose le téléchargement */
   downloadJSON(data, filename) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -272,6 +282,124 @@ const Utils = {
     a.click();
     URL.revokeObjectURL(url);
   }
+};
+
+/* ================================================================
+   CHRONOMÈTRES DE PARTIE
+   ================================================================ */
+
+const GameTimer = {
+  nowIso() { return new Date().toISOString(); },
+
+  /** Initialise le chrono d'une nouvelle partie sans écraser un chrono existant. */
+  initialize(game, startedAt = this.nowIso()) {
+    if (!game) return game;
+    if (!game.timing || !game.timing.startedAt) {
+      game.timing = { startedAt, endedAt: null, durationMs: null };
+    }
+    if (game.type === 'fiveHundred' && game.mode === 'teams') {
+      if (!game.series) game.series = {};
+      if (!game.series.currentSetStartedAt && !game.series.finished) {
+        game.series.currentSetStartedAt = startedAt;
+      }
+    }
+    return game;
+  },
+
+  /** Migration douce : ne fabrique pas de durée pour une ancienne partie déjà terminée. */
+  migrate(game) {
+    if (!game) return game;
+    if (game.status === 'active') this.initialize(game);
+    return game;
+  },
+
+  currentStartedAt(game) {
+    if (!game) return null;
+    if (game.type === 'fiveHundred' && game.mode === 'teams') {
+      if (game.series?.finished) {
+        const last = game.series?.games?.[game.series.games.length - 1];
+        return last?.timerStartedAt || game.timing?.startedAt || null;
+      }
+      return game.series?.currentSetStartedAt || game.timing?.startedAt || null;
+    }
+    return game.timing?.startedAt || null;
+  },
+
+  elapsedMs(game, nowMs = Date.now()) {
+    if (!game) return 0;
+    const startedAt = this.currentStartedAt(game);
+    if (!startedAt) return 0;
+
+    let endedAt = null;
+    if (game.type === 'fiveHundred' && game.mode === 'teams' && game.series?.finished) {
+      const last = game.series?.games?.[game.series.games.length - 1];
+      endedAt = last?.timerEndedAt || last?.finishedAt || game.finishedAt || null;
+    } else {
+      endedAt = game.timing?.endedAt || null;
+    }
+    const startMs = new Date(startedAt).getTime();
+    const endMs = endedAt ? new Date(endedAt).getTime() : nowMs;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+    return Math.max(0, endMs - startMs);
+  },
+
+  /** Termine et journalise la partie courante d'une série de 500. */
+  finishSet(game, finishedAt = this.nowIso(), gameNumber = null, interrupted = false) {
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return null;
+    this.initialize(game, finishedAt);
+    const series = game.series;
+    const startedAt = series.currentSetStartedAt || game.timing?.startedAt || finishedAt;
+    const startMs = new Date(startedAt).getTime();
+    const endMs = new Date(finishedAt).getTime();
+    const durationMs = Number.isFinite(startMs) && Number.isFinite(endMs) ? Math.max(0, endMs - startMs) : 0;
+    const number = gameNumber || series.gameNumber || ((series.games?.length || 0) + 1);
+
+    game.history = game.history || [];
+    game.history.push({
+      kind: 'timer',
+      scope: 'set',
+      seriesGameNumber: number,
+      startedAt,
+      endedAt: finishedAt,
+      durationMs,
+      interrupted: !!interrupted,
+      timestamp: finishedAt,
+    });
+    series.currentSetStartedAt = null;
+    return { startedAt, endedAt: finishedAt, durationMs, interrupted: !!interrupted };
+  },
+
+  startNextSet(game, startedAt = this.nowIso()) {
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    this.initialize(game, startedAt);
+    game.series.currentSetStartedAt = startedAt;
+  },
+
+  /** Termine le chrono global d'une partie. */
+  finishGame(game, finishedAt = this.nowIso(), journal = true) {
+    if (!game) return null;
+    this.initialize(game, finishedAt);
+    if (game.timing.endedAt) return game.timing;
+    const startedAt = game.timing.startedAt;
+    const startMs = new Date(startedAt).getTime();
+    const endMs = new Date(finishedAt).getTime();
+    const durationMs = Number.isFinite(startMs) && Number.isFinite(endMs) ? Math.max(0, endMs - startMs) : 0;
+    game.timing.endedAt = finishedAt;
+    game.timing.durationMs = durationMs;
+
+    if (journal) {
+      game.history = game.history || [];
+      game.history.push({
+        kind: 'timer',
+        scope: 'game',
+        startedAt,
+        endedAt: finishedAt,
+        durationMs,
+        timestamp: finishedAt,
+      });
+    }
+    return game.timing;
+  },
 };
 
 /* ================================================================
@@ -612,6 +740,7 @@ const Games = {
       const series = this.ensureSeries(game);
       const finishedAt = new Date().toISOString();
       const gameNumber = series.gameNumber || (series.games.length + 1);
+      const setTiming = GameTimer.finishSet(game, finishedAt, gameNumber, false);
       const teamsSnapshot = game.teams.map((team, idx) => ({
         name: team.name,
         members: this.teamMembers(game, idx),
@@ -625,6 +754,9 @@ const Games = {
         winnerMembers: this.teamMembers(game, winnerTeamIdx),
         teams: teamsSnapshot,
         finalScores: game.teams.map(t => t.score),
+        timerStartedAt: setTiming?.startedAt || null,
+        timerEndedAt: setTiming?.endedAt || finishedAt,
+        durationMs: setTiming?.durationMs ?? 0,
       };
       series.games.push(result);
       series.wins[winnerTeamIdx] = (series.wins[winnerTeamIdx] || 0) + 1;
@@ -638,9 +770,11 @@ const Games = {
         game.winnerMembers = this.teamMembers(game, winnerTeamIdx);
         game.finishedAt = finishedAt;
         game.winReason = 'series';
+        GameTimer.finishGame(game, finishedAt, false);
       } else {
         game.teams.forEach(t => { t.score = 0; });
         series.gameNumber = gameNumber + 1;
+        GameTimer.startNextSet(game, finishedAt);
         delete game.winnerName;
         delete game.winnerMembers;
         delete game.winReason;
@@ -844,12 +978,16 @@ const Games = {
         game.status = 'finished';
         game.winnerName = winner.name;
         game.winReason = 'contract10';
+        game.finishedAt = new Date().toISOString();
+        GameTimer.finishGame(game, game.finishedAt, true);
       } else {
         winner = game.players.find(p => p.score >= 1000) || null;
         if (winner) {
           game.status = 'finished';
           game.winnerName = winner.name;
           game.winReason = 'score';
+          game.finishedAt = new Date().toISOString();
+          GameTimer.finishGame(game, game.finishedAt, true);
         }
       }
       return { success, contractPoints, opponentPoolRatio, opponentPointsPool, pointsPerOpposingTrick, snapshots, winner };
@@ -885,6 +1023,7 @@ const Games = {
           game.winnerName = winner.name;
           game.finishedAt = new Date().toISOString();
           game.winReason = 'score';
+          GameTimer.finishGame(game, game.finishedAt, true);
         }
       }
       return { old, delta: appliedDelta, newValue: entity.score, winner, gameCompletion };
@@ -922,7 +1061,12 @@ const Games = {
       game.updatedAt = new Date().toISOString();
 
       const winner = game.scoreLimit !== null && p.score >= game.scoreLimit ? p : null;
-      if (winner) game.status = 'finished';
+      if (winner) {
+        game.status = 'finished';
+        game.winnerName = winner.name;
+        game.finishedAt = new Date().toISOString();
+        GameTimer.finishGame(game, game.finishedAt, true);
+      }
 
       return { old, newValue: p.score, winner };
     }
@@ -1333,6 +1477,7 @@ const Screens = {
     UI._selectedContract = null;
     UI._selectedTeam = null;
     UI.resetFhIndividualFlow();
+    UI.updateGameTimerDisplay();
   },
 
   /* ─── Générique ─── */
@@ -1496,6 +1641,21 @@ const Screens = {
     }
 
     el.innerHTML = entries.map(e => {
+      if (e.kind === 'timer') {
+        const label = e.scope === 'set'
+          ? `⏱ Partie ${e.seriesGameNumber || ''}`.trim()
+          : '⏱ Temps de partie';
+        const suffix = e.interrupted ? ' · interrompue' : '';
+        return `
+          <div class="history-entry history-timer-entry">
+            <div class="history-header">
+              <span class="history-player">${label}${suffix}</span>
+              <span class="history-time">${Utils.formatDate(e.endedAt || e.timestamp)}</span>
+            </div>
+            <div class="history-detail"><strong>${Utils.formatDuration(e.durationMs)}</strong> · début ${Utils.formatDate(e.startedAt)} · fin ${Utils.formatDate(e.endedAt || e.timestamp)}</div>
+          </div>
+        `;
+      }
       if (game.type === 'hearts') {
         return `
           <div class="history-round-marker">— Round ${e.round} · Total ${e.total} pts —</div>
@@ -1601,6 +1761,32 @@ const UI = {
   _fhSoundReady: false,
   _fhStarterTimer: null,
   _passwordSettingsUnlocked: false,
+  _gameTimerInterval: null,
+
+  timerLabel(game) {
+    if (!game) return 'Temps';
+    if (game.type === 'fiveHundred' && game.mode === 'teams') {
+      return `Partie ${game.series?.gameNumber || 1}`;
+    }
+    return 'Temps de partie';
+  },
+
+  updateGameTimerDisplay() {
+    const game = State.currentGame;
+    const elapsed = GameTimer.elapsedMs(game);
+    document.querySelectorAll('[data-game-timer-value]').forEach(el => {
+      el.textContent = Utils.formatDuration(elapsed);
+    });
+    document.querySelectorAll('[data-game-timer-label]').forEach(el => {
+      el.textContent = this.timerLabel(game);
+    });
+  },
+
+  startGameTimerTicker() {
+    clearInterval(UI._gameTimerInterval);
+    this.updateGameTimerDisplay();
+    UI._gameTimerInterval = setInterval(() => this.updateGameTimerDisplay(), 1000);
+  },
 
   closeModalFromBackdrop(event) {
     if (event.target === event.currentTarget) this.closeAppModal();
@@ -1899,9 +2085,11 @@ const UI = {
     `).join('');
   },
 
-  /** Reprend une partie existante */
-  resumeGame(game) {
+  /** Reprend une partie existante. Les anciennes parties actives démarrent leur chrono à la première reprise après mise à jour. */
+  async resumeGame(game) {
+    GameTimer.migrate(game);
     State.currentGame = game;
+    await DB.save('games', game);
     const screenMap = {
       hearts:      'hearts',
       magic:       'magic',
@@ -1909,6 +2097,7 @@ const UI = {
       generic:     'generic',
     };
     Router.go(screenMap[game.type] || 'home');
+    this.updateGameTimerDisplay();
   },
 
   /** Crée la partie à partir du formulaire */
@@ -1952,6 +2141,7 @@ const UI = {
         }
       }
 
+      GameTimer.initialize(game);
       State.currentGame = game;
       await DB.save('games', game);
       Utils.toast('Partie créée !', 'success');
@@ -2451,8 +2641,9 @@ const UI = {
 
     const data = {
       format: 'scorekeeper-pro-full-backup',
-      formatVersion: 2,
+      formatVersion: 3,
       version: APP_VERSION,
+      timersIncluded: true,
       exportedAt: new Date().toISOString(),
       data: {
         games,
@@ -2476,6 +2667,7 @@ const UI = {
     const game = State.currentGame;
     Utils.downloadJSON({
       version: APP_VERSION,
+      timersIncluded: true,
       exportedAt: new Date().toISOString(),
       game,
     }, `partie-${game.type}-${new Date().toISOString().slice(0,10)}.json`);
@@ -2496,6 +2688,7 @@ const UI = {
 
         if (raw.game) {
           // Import d'une seule partie : conserver le comportement historique de fusion.
+          GameTimer.migrate(raw.game);
           await DB.save('games', raw.game);
           Utils.toast('Partie importée !', 'success');
           await Screens.render_home();
@@ -2520,7 +2713,7 @@ const UI = {
           // sans conserver de données résiduelles d'une installation précédente.
           await Promise.all([DB.clear('games'), DB.clear('settings'), DB.clear('logs')]);
 
-          for (const g of payload.games || []) await DB.save('games', g);
+          for (const g of payload.games || []) { GameTimer.migrate(g); await DB.save('games', g); }
           for (const setting of payload.settings || []) await DB.save('settings', setting);
           for (const log of payload.logs || []) await DB.save('logs', log);
           // Les anciennes sauvegardes ne contiennent pas nécessairement les mots de passe.
@@ -2543,7 +2736,7 @@ const UI = {
         }
 
         // Ancien export ne contenant que les parties : fusion non destructive.
-        for (const g of payload.games) await DB.save('games', g);
+        for (const g of payload.games) { GameTimer.migrate(g); await DB.save('games', g); }
         Utils.toast(`${payload.games.length} partie(s) importée(s)`, 'success');
         await Screens.render_home();
       } catch (err) {
@@ -2635,8 +2828,17 @@ const UI = {
     if (!(game.type === 'fiveHundred' && game.mode === 'teams' && game.series?.games?.length)) {
       if (!this.resolveWinnerBeforeArchive(game)) return;
     }
+    const timerEndedAt = game.finishedAt || new Date().toISOString();
+    if (game.type === 'fiveHundred' && game.mode === 'teams') {
+      if (!game.series?.finished && game.series?.currentSetStartedAt) {
+        GameTimer.finishSet(game, timerEndedAt, game.series?.gameNumber || 1, true);
+      }
+      GameTimer.finishGame(game, timerEndedAt, false);
+    } else {
+      GameTimer.finishGame(game, timerEndedAt, true);
+    }
     game.status = 'finished';
-    game.finishedAt = game.finishedAt || new Date().toISOString();
+    game.finishedAt = timerEndedAt;
     await DB.save('games', game);
     State.currentGame = null;
     Utils.toast('Partie terminée et statistiques mises à jour', 'info');
@@ -2796,6 +2998,8 @@ function buildScreenHTML() {
         </div>
       </div>
 
+      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Temps de partie</span></span><strong data-game-timer-value>00:00</strong></div>
+
       <div class="round-bar">
         <div>
           <div class="round-label">Manche en cours</div>
@@ -2841,6 +3045,8 @@ function buildScreenHTML() {
         </div>
       </div>
 
+      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Temps de partie</span></span><strong data-game-timer-value>00:00</strong></div>
+
       <!-- Quick amount selector -->
       <div class="card" style="padding:12px 18px">
         <div class="card-title" style="margin-bottom:8px">Valeur du bouton +/−</div>
@@ -2870,6 +3076,8 @@ function buildScreenHTML() {
           <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
         </div>
       </div>
+
+      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Partie 1</span></span><strong data-game-timer-value>00:00</strong></div>
 
       <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · 1000 pts</div>
       <div class="fh-next-bidder" id="fh-next-bidder-banner"><span>Première mise de la prochaine donne</span><strong>—</strong></div>
@@ -2920,6 +3128,8 @@ function buildScreenHTML() {
           <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
         </div>
       </div>
+
+      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Temps de partie</span></span><strong data-game-timer-value>00:00</strong></div>
 
       <div id="generic-victory" class="victory-banner" style="display:none">
         <div class="victory-trophy">🏆</div>
@@ -3057,6 +3267,7 @@ async function init() {
   // Initialiser IndexedDB
   await DB.init();
   await Security.ensureDefaults();
+  UI.startGameTimerTicker();
 
   // Enregistrer le service worker et forcer la vérification des mises à jour.
   // updateViaCache:'none' évite qu'Android/Chrome réutilise une ancienne copie du SW.

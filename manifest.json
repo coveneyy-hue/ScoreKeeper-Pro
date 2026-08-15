@@ -4,8 +4,8 @@
   "description": "Gestionnaire de scores pour Dame de Pique, Magic, 500 et plus",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#121212",
-  "theme_color": "#BB86FC",
+  "background_color": "#0E1015",
+  "theme_color": "#171A21",
   "orientation": "any",
   "icons": [
     {
