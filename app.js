@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.39';
+const APP_VERSION = '1.40';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -679,8 +679,55 @@ const Games = {
         gameCompletion = this.completeTeamGame(game, winnerIdx);
       }
 
-      // La rotation continue après chaque contrat tant que la série n'est pas terminée.
-      // À la fin définitive d'une série, il n'existe pas de « prochain miseur » à annoncer.
+      let nextBidder = null;
+      if (!gameCompletion?.seriesWon) {
+        nextBidder = this.advanceNextBidder(game);
+        lastHistory.nextBidder = nextBidder.name;
+      }
+      return {
+        delta: pts,
+        awardedTeam,
+        awardedTeamIdx: awardedIdx,
+        newValue: awardedTeam.score,
+        winner,
+        gameCompletion,
+        nextBidder,
+      };
+    },
+
+    /** Attribution directe des points en mode équipes, utilisée par le modal compact. */
+    applyAwardedContract(game, awardedIdx, contractKey) {
+      this.ensureSeries(game);
+      const pts = this.contractPoints(game, contractKey);
+      const awardedTeam = game.teams[awardedIdx];
+      const oldAwarded = awardedTeam.score;
+      awardedTeam.score = Math.max(0, oldAwarded + pts);
+
+      game.history.push({
+        kind: 'contract',
+        timestamp: new Date().toISOString(),
+        team: awardedTeam.name,
+        awardedTeam: awardedTeam.name,
+        awardedTeamIdx: awardedIdx,
+        contract: contractKey,
+        points: pts,
+        success: true,
+        directAward: true,
+        oldValue: oldAwarded,
+        delta: pts,
+        newValue: awardedTeam.score,
+        seriesGameNumber: game.series.gameNumber,
+      });
+      const lastHistory = game.history[game.history.length - 1];
+      game.updatedAt = new Date().toISOString();
+
+      let winner = game.teams.find(t => t.score >= 1000) || null;
+      let gameCompletion = null;
+      if (winner) {
+        const winnerIdx = game.teams.indexOf(winner);
+        gameCompletion = this.completeTeamGame(game, winnerIdx);
+      }
+
       let nextBidder = null;
       if (!gameCompletion?.seriesWon) {
         nextBidder = this.advanceNextBidder(game);
@@ -1240,24 +1287,23 @@ const Screens = {
       victBanner.style.display = 'none';
     }
 
-    const resultBtns = document.getElementById('fh-team-result-btns');
-    const tricksSection = document.getElementById('fh-individual-tricks');
-    const bidderTitle = document.getElementById('fh-bidder-title');
-    if (game.mode === 'individual') {
-      resultBtns.style.display = 'none';
-      tricksSection.style.display = 'block';
-      bidderTitle.textContent = 'Joueur qui mise';
-      UI.resetFhIndividualFlow();
-    } else {
-      resultBtns.style.display = 'flex';
-      tricksSection.style.display = 'none';
-      bidderTitle.textContent = 'Équipe qui enchérit';
+    const next = Games.fiveHundred.nextBidder(game);
+    const nextBanner = document.getElementById('fh-next-bidder-banner');
+    if (nextBanner) {
+      nextBanner.innerHTML = `<span>Première mise de la prochaine donne</span><strong>${Utils.esc(next.name)}</strong>`;
+    }
+    const compact = document.getElementById('fh-series-inline');
+    if (compact) {
+      if (game.mode === 'teams') {
+        compact.innerHTML = `<strong>Partie ${game.series?.gameNumber || 1}</strong> · Série ${game.series?.wins?.[0] || 0}-${game.series?.wins?.[1] || 0}`;
+      } else {
+        compact.innerHTML = `<strong>${game.players.length}</strong> joueur(s) · rotation des mises active`;
+      }
     }
 
-    UI.renderFhTableInfo();
-    UI.renderContractPicker();
-    UI.renderFhEntityButtons();
-    UI.renderFhManualAdjust();
+    UI._selectedContract = null;
+    UI._selectedTeam = null;
+    UI.resetFhIndividualFlow();
   },
 
   /* ─── Générique ─── */
@@ -1470,7 +1516,7 @@ const Screens = {
               <span class="history-player">${Utils.esc(e.team)} · ${e.contract}</span>
               <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
             </div>
-            <div class="history-detail">${e.success ? '✅ Contrat réussi' : '❌ Contrat chuté'} · ${e.points || e.delta} pts à ${Utils.esc(e.awardedTeam || e.team)}</div>
+            <div class="history-detail">${e.directAward ? '✅ Points accordés' : (e.success ? '✅ Contrat réussi' : '❌ Contrat chuté')} · ${e.points || e.delta} pts à ${Utils.esc(e.awardedTeam || e.team)}</div>
             <div class="history-detail">${Utils.esc(e.awardedTeam || e.team)} : ${e.oldValue} +${e.delta} → ${e.newValue}</div>
             ${e.seriesGameNumber ? `<div class="history-detail">Partie ${e.seriesGameNumber} de la série</div>` : ''}
             ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}</div>` : ''}
@@ -1509,6 +1555,134 @@ const UI = {
   _fhSoundReady: false,
   _fhStarterTimer: null,
   _passwordSettingsUnlocked: false,
+
+  closeModalFromBackdrop(event) {
+    if (event.target === event.currentTarget) this.closeAppModal();
+  },
+
+  closeAppModal() {
+    const overlay = document.getElementById('app-modal-overlay');
+    const title = document.getElementById('app-modal-title');
+    const body = document.getElementById('app-modal-body');
+    if (overlay) overlay.style.display = 'none';
+    if (title) title.textContent = '';
+    if (body) body.innerHTML = '';
+    UI._selectedContract = null;
+    UI._selectedTeam = null;
+    UI.resetFhIndividualFlow();
+  },
+
+  openAppModal(title, bodyHtml) {
+    const overlay = document.getElementById('app-modal-overlay');
+    const titleEl = document.getElementById('app-modal-title');
+    const bodyEl = document.getElementById('app-modal-body');
+    if (!overlay || !titleEl || !bodyEl) return;
+    titleEl.textContent = title;
+    bodyEl.innerHTML = bodyHtml;
+    overlay.style.display = 'flex';
+  },
+
+  fhContractTableHtml(interactive = false) {
+    const game = State.currentGame;
+    const bids = ['7','8','9','10'];
+    return `
+      <div class="fh-contract-table ${interactive ? 'interactive' : 'readonly'}">
+        <div class="fh-contract-head"><div>♠</div><div>♣</div><div>♦</div><div>♥</div><div>NT</div></div>
+        <div class="fh-contract-grid">
+          ${bids.map(bid => SUITS.map(suit => {
+            const key = `${bid}${suit}`;
+            const pts = Games.fiveHundred.contractPoints(game, key);
+            const bidLabel = bid === '10' ? 'Partie' : bid;
+            if (interactive) {
+              return `<button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}" onclick="UI.selectContract('${key}')" data-key="${key}"><span class="suit-icon">${suit === 'NT' ? 'NT' : suit}</span><span>${bidLabel}</span><small>${pts}</small></button>`;
+            }
+            return `<div class="fh-contract-value-cell"><span class="suit">${suit === 'NT' ? 'NT' : suit}</span><span class="bid">${bidLabel}</span><strong>${pts}</strong></div>`;
+          }).join('')).join('')}
+        </div>
+      </div>`;
+  },
+
+  openFhInfoModal() {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred') return;
+    const seats = Games.fiveHundred.ensureTableSetup(game);
+    const next = Games.fiveHundred.nextBidder(game);
+    const teamsBlock = game.mode === 'teams'
+      ? `<div class="fh-info-group"><div class="card-title">Équipes</div>${game.teams.map((team, teamIdx) => `<div class="setting-sub"><strong>${Utils.esc(team.name)}</strong> : ${seats.filter(p => p.teamIdx === teamIdx).map(p => Utils.esc(p.name)).join(' + ')}</div>`).join('')}</div>`
+      : '';
+    const html = `
+      <div class="fh-info-group">
+        <div class="card-title">Ordre autour de la table</div>
+        <div class="setting-sub" style="margin-bottom:10px">L’ordre affiché correspond au placement autour de la table. Le premier nom commence la série. Ensuite, les mises tournent dans cet ordre après chaque contrat.</div>
+        <div class="fh-player-order">
+          ${seats.map((player, i) => {
+            const team = game.mode === 'teams' ? game.teams[player.teamIdx] : null;
+            return `<div class="fh-order-row ${i === next.seatIdx ? 'fh-starter-active' : ''}" data-seat-idx="${i}"><span class="fh-order-num">${i + 1}</span><strong>${Utils.esc(player.name)}</strong>${team ? `<span class="badge badge-accent">${Utils.esc(team.name)}</span>` : ''}</div>`;
+          }).join('')}
+        </div>
+      </div>
+      ${teamsBlock}
+      <div class="fh-info-group">
+        <div class="card-title">Prochaine mise</div>
+        <div class="fh-next-bidder"><span>Premier joueur à miser</span><strong>${Utils.esc(next.name)}</strong></div>
+      </div>
+      <div class="fh-info-group">
+        <div class="card-title">Valeur des contrats</div>
+        ${this.fhContractTableHtml(false)}
+      </div>
+    `;
+    this.openAppModal('Informations du 500', html);
+  },
+
+  openFhManualAdjustModal() {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred') return;
+    const html = `
+      <div class="setting-sub" style="margin-bottom:12px">Le mot de passe d’ajustement manuel sera demandé avant la modification.</div>
+      <div class="form-group">
+        <label class="form-label">Équipe ou joueur</label>
+        <select class="form-select" id="fh-modal-adjust-entity"></select>
+      </div>
+      <div class="generic-input-row">
+        <input class="generic-delta-input" type="number" id="fh-modal-adjust-value" min="0" value="0" placeholder="Points">
+        <button class="btn btn-success btn-icon" onclick="UI.fhManualAdjust(1)" title="Ajouter">+</button>
+        <button class="btn btn-danger btn-icon" onclick="UI.fhManualAdjust(-1)" title="Retirer">−</button>
+      </div>
+    `;
+    this.openAppModal('Ajustement manuel / pénalité', html);
+    this.renderFhManualAdjust();
+  },
+
+  openFhResultModal() {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred') return;
+    UI._selectedContract = null;
+    UI._selectedTeam = null;
+    UI.resetFhIndividualFlow();
+    const isIndividual = game.mode === 'individual';
+    const html = isIndividual
+      ? `
+        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat, puis le joueur qui a misé.</div>
+        ${this.fhContractTableHtml(true)}
+        <div class="card-title" style="margin-top:14px">Joueur qui mise</div>
+        <div class="team-select-row" id="fh-modal-bidder-buttons"></div>
+        <div class="result-btns" style="margin-top:14px">
+          <button class="btn btn-success" id="fh-modal-btn-bidder-win" onclick="UI.fhIndividualResult(true)" disabled>✅ Mise gagnée</button>
+          <button class="btn btn-danger" id="fh-modal-btn-bidder-lose" onclick="UI.fhIndividualResult(false)" disabled>❌ Mise perdue</button>
+        </div>
+        <div id="fh-modal-opponent-tricks-panel" style="display:none"></div>
+      `
+      : `
+        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat puis l’équipe qui reçoit les points pour cette donne.</div>
+        ${this.fhContractTableHtml(true)}
+        <div class="card-title" style="margin-top:14px">Équipe gagnante de la donne</div>
+        <div class="team-select-row" id="fh-modal-bidder-buttons"></div>
+        <button class="btn btn-primary" id="fh-modal-btn-apply-team" style="margin-top:14px" onclick="UI.fhApplyTeamAward()" disabled>✓ Valider la donne</button>
+      `;
+    this.openAppModal('Partie terminée', html);
+    this.renderFhEntityButtons();
+    this.updateFhSubmitBtn();
+  },
 
   openSettings() {
     Router.go('settings');
@@ -1871,61 +2045,29 @@ const UI = {
   },
 
   renderContractPicker() {
-    const bids = ['7','8','9','10'];
-    const pickerEl = document.getElementById('fh-contract-picker');
-    if (!pickerEl) return;
-
-    const rows = bids.map(bid =>
-      SUITS.map(suit => {
-        const key = `${bid}${suit}`;
-        const pts = Games.fiveHundred.contractPoints(State.currentGame, key);
-        const label = suit === 'NT' ? 'NT' : suit;
-        const bidLabel = bid === '10' ? 'Partie' : bid;
-        return `
-          <button class="contract-btn ${UI._selectedContract === key ? 'selected' : ''}"
-            onclick="UI.selectContract('${key}')" data-key="${key}">
-            <span class="suit-icon">${label}</span>
-            <span>${bidLabel}</span>
-            <small>${pts}</small>
-          </button>
-        `;
-      }).join('')
-    ).join('');
-
-    pickerEl.innerHTML = rows;
+    // La grille des contrats est maintenant rendue directement dans les modals.
   },
 
   renderFhEntityButtons() {
     const game = State.currentGame;
-    const wrap = document.getElementById('fh-bidder-buttons');
-    if (!game || !wrap) return;
+    if (!game) return;
     const list = game.mode === 'individual' ? game.players : game.teams;
-    wrap.innerHTML = list.map((entity, i) => `
-      <button class="team-select-btn ${UI._selectedTeam === i ? `selected team-${i % 2}` : ''}"
-        onclick="UI.selectFhTeam(${i})">${Utils.esc(entity.name)}</button>
-    `).join('');
+    ['fh-bidder-buttons', 'fh-modal-bidder-buttons'].forEach((id) => {
+      const wrap = document.getElementById(id);
+      if (!wrap) return;
+      wrap.innerHTML = list.map((entity, i) => `
+        <button class="team-select-btn ${UI._selectedTeam === i ? `selected team-${i % 2}` : ''}"
+          onclick="UI.selectFhTeam(${i})">${Utils.esc(entity.name)}</button>
+      `).join('');
+    });
   },
 
   selectContract(key) {
     if (State.currentGame?.mode === 'individual') this.resetFhIndividualFlow();
     UI._selectedContract = key;
-    const pts = Games.fiveHundred.contractPoints(State.currentGame, key);
     document.querySelectorAll('.contract-btn').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.key === key);
     });
-    const valEl = document.getElementById('fh-contract-value');
-    if (valEl) {
-      const displayKey = Games.fiveHundred.isGameContract(key)
-        ? `Partie ${key.slice(2)}`
-        : key;
-      if (State.currentGame?.mode === 'individual') {
-        const pct = Math.round(Games.fiveHundred.opponentPoolRatio(State.currentGame) * 100);
-        const pool = Games.fiveHundred.opponentPointsPool(State.currentGame, key);
-        valEl.innerHTML = `<strong>${displayKey}</strong> = <span>${pts} points</span><div class="setting-sub" style="margin-top:4px">Si chuté : bassin adverse ${pool} pts (${pct} %)</div>`;
-      } else {
-        valEl.innerHTML = `<strong>${displayKey}</strong> = <span>${pts} points</span>`;
-      }
-    }
     this.updateFhSubmitBtn();
   },
 
@@ -1940,7 +2082,7 @@ const UI = {
     UI._fhOpponentOrder = [];
     UI._fhOpponentStep = 0;
     UI._fhOpponentTricks = [];
-    const panel = document.getElementById('fh-opponent-tricks-panel');
+    const panel = document.getElementById('fh-modal-opponent-tricks-panel') || document.getElementById('fh-opponent-tricks-panel');
     if (panel) {
       panel.style.display = 'none';
       panel.innerHTML = '';
@@ -1965,7 +2107,7 @@ const UI = {
 
   renderFhOpponentTrickStep() {
     const game = State.currentGame;
-    const panel = document.getElementById('fh-opponent-tricks-panel');
+    const panel = document.getElementById('fh-modal-opponent-tricks-panel') || document.getElementById('fh-opponent-tricks-panel');
     if (!game || game.mode !== 'individual' || !panel || !UI._fhOpponentOrder.length) return;
 
     const playerIdx = UI._fhOpponentOrder[UI._fhOpponentStep];
@@ -2031,28 +2173,32 @@ const UI = {
       game, UI._selectedTeam, UI._selectedContract, false, UI._fhOpponentTricks
     );
     await DB.save('games', game);
-    const next = Games.fiveHundred.nextBidder(game);
-    Utils.toast(`❌ Mise perdue : bassin ${result.opponentPointsPool} pts · ${result.pointsPerOpposingTrick} pts/levée · Prochaine mise : ${next.name}`, 'info', 5000);
+    const next = game.status === 'finished' ? null : Games.fiveHundred.nextBidder(game);
+    Utils.toast(
+      next
+        ? `❌ Mise perdue : bassin ${result.opponentPointsPool} pts · ${result.pointsPerOpposingTrick} pts/levée · Prochaine mise : ${next.name}`
+        : `🏆 ${game.winnerName} remporte la partie`,
+      next ? 'info' : 'success',
+      5000
+    );
 
-    UI._selectedContract = null;
-    UI._selectedTeam = null;
-    this.resetFhIndividualFlow();
+    this.closeAppModal();
     Screens.render_five_hundred();
-    setTimeout(() => UI.announceFhStarter(true), 120);
+    if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
   updateFhSubmitBtn() {
     const game = State.currentGame;
     const hasSelection = UI._selectedContract !== null && UI._selectedTeam !== null;
-    const successBtn = document.getElementById('fh-btn-success');
-    const failBtn = document.getElementById('fh-btn-fail');
-    if (successBtn) successBtn.disabled = !hasSelection;
-    if (failBtn) failBtn.disabled = !hasSelection;
+    ['fh-btn-success','fh-btn-fail','fh-modal-btn-apply-team'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !hasSelection;
+    });
 
-    const bidderWinBtn = document.getElementById('fh-btn-bidder-win');
-    const bidderLoseBtn = document.getElementById('fh-btn-bidder-lose');
-    if (bidderWinBtn) bidderWinBtn.disabled = !(game?.mode === 'individual' && hasSelection);
-    if (bidderLoseBtn) bidderLoseBtn.disabled = !(game?.mode === 'individual' && hasSelection);
+    ['fh-btn-bidder-win','fh-btn-bidder-lose','fh-modal-btn-bidder-win','fh-modal-btn-bidder-lose'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !(game?.mode === 'individual' && hasSelection);
+    });
   },
 
   async fhApplyResult(success) {
@@ -2096,6 +2242,42 @@ const UI = {
     if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
+  async fhApplyTeamAward() {
+    if (UI._selectedContract === null || UI._selectedTeam === null) return;
+    this.unlockFhSound();
+    const game = State.currentGame;
+    if (!game || game.mode !== 'teams') return;
+    const contract = UI._selectedContract;
+    const result = Games.fiveHundred.applyAwardedContract(game, UI._selectedTeam, contract);
+    await DB.save('games', game);
+
+    const next = result.nextBidder;
+    const awarded = result.awardedTeam?.name || '';
+    const isSeriesFinished = !!result.gameCompletion?.seriesWon;
+    Utils.toast(
+      isSeriesFinished
+        ? `🏆 Série terminée : ${result.gameCompletion.seriesWinner.name} gagne ${game.series.wins[0]}-${game.series.wins[1]}`
+        : `✅ ${awarded} +${Games.fiveHundred.contractPoints(game, contract)} pts · Prochaine mise : ${next.name}`,
+      'success',
+      5000
+    );
+
+    if (result.gameCompletion) {
+      const gc = result.gameCompletion;
+      const series = game.series;
+      if (gc.seriesWon) {
+        await DB.save('games', game);
+        alert(`Série gagnée par ${gc.seriesWinner.name} ! Résultat : ${series.wins[0]} - ${series.wins[1]}.`);
+      } else {
+        alert(`Partie ${gc.result.gameNumber} gagnée par ${gc.result.winnerTeamName}. Série : ${series.wins[0]} - ${series.wins[1]}. Les scores repartent à 0 pour la prochaine partie.`);
+      }
+    }
+
+    this.closeAppModal();
+    Screens.render_five_hundred();
+    if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
+  },
+
   async fhApplyIndividualSuccess() {
     this.unlockFhSound();
     const game = State.currentGame;
@@ -2103,28 +2285,32 @@ const UI = {
 
     const result = Games.fiveHundred.applyIndividualRound(game, UI._selectedTeam, UI._selectedContract, true, []);
     await DB.save('games', game);
-    const next = Games.fiveHundred.nextBidder(game);
-    Utils.toast(`✅ Mise gagnée : +${result.contractPoints} pts · Prochaine mise : ${next.name}`, 'success', 4200);
+    const next = game.status === 'finished' ? null : Games.fiveHundred.nextBidder(game);
+    Utils.toast(
+      next ? `✅ Mise gagnée : +${result.contractPoints} pts · Prochaine mise : ${next.name}` : `🏆 ${game.winnerName} remporte la partie`,
+      'success',
+      4200
+    );
 
-    UI._selectedContract = null;
-    UI._selectedTeam = null;
-    this.resetFhIndividualFlow();
+    this.closeAppModal();
     Screens.render_five_hundred();
-    setTimeout(() => UI.announceFhStarter(true), 120);
+    if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
   renderFhManualAdjust() {
     const game = State.currentGame;
-    const sel = document.getElementById('fh-adjust-entity');
-    if (!game || !sel) return;
+    if (!game) return;
     const list = game.mode === 'individual' ? game.players : game.teams;
-    sel.innerHTML = list.map((e, i) => `<option value="${i}">${Utils.esc(e.name)}</option>`).join('');
+    ['fh-adjust-entity','fh-modal-adjust-entity'].forEach((id) => {
+      const sel = document.getElementById(id);
+      if (sel) sel.innerHTML = list.map((e, i) => `<option value="${i}">${Utils.esc(e.name)}</option>`).join('');
+    });
   },
 
   async fhManualAdjust(sign) {
     const game = State.currentGame;
-    const idx = parseInt(document.getElementById('fh-adjust-entity')?.value || 0, 10);
-    const raw = Math.abs(parseInt(document.getElementById('fh-adjust-value')?.value || 0, 10));
+    const idx = parseInt((document.getElementById('fh-modal-adjust-entity')?.value ?? document.getElementById('fh-adjust-entity')?.value ?? 0), 10);
+    const raw = Math.abs(parseInt((document.getElementById('fh-modal-adjust-value')?.value ?? document.getElementById('fh-adjust-value')?.value ?? 0), 10));
     if (!raw) {
       Utils.toast('Entrez un nombre de points', 'error');
       return;
@@ -2134,7 +2320,9 @@ const UI = {
     const result = Games.fiveHundred.adjustScore(game, idx, raw * sign);
     await DB.save('games', game);
     Utils.toast(`Ajustement ${Utils.signed(result.delta)} pts`, result.delta < 0 ? 'error' : 'success');
-    document.getElementById('fh-adjust-value').value = 0;
+    const input = document.getElementById('fh-modal-adjust-value') || document.getElementById('fh-adjust-value');
+    if (input) input.value = 0;
+    this.closeAppModal();
     Screens.render_five_hundred();
   },
 
@@ -2566,13 +2754,15 @@ function buildScreenHTML() {
         <button class="btn-back" onclick="Router.go('home')">‹</button>
         <div class="header-title" id="fh-screen-title">🃏 Jeu de 500</div>
         <div class="header-actions">
+          <button class="btn-back" onclick="UI.openFhInfoModal()" title="Infos">ℹ️</button>
           <button class="btn-back" onclick="UI.goHistory()" title="Historique">📋</button>
           <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
         </div>
       </div>
 
       <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · 1000 pts</div>
-      <div class="card" id="fh-table-info"></div>
+      <div class="fh-next-bidder" id="fh-next-bidder-banner"><span>Première mise de la prochaine donne</span><strong>—</strong></div>
+      <div class="fh-series-inline" id="fh-series-inline"></div>
       <div class="five-hundred-teams" id="fh-teams"></div>
 
       <div id="fh-victory" class="victory-banner" style="display:none">
@@ -2584,55 +2774,25 @@ function buildScreenHTML() {
         <button class="btn btn-primary btn-sm" onclick="UI.endGame()">Terminer</button>
       </div>
 
-      <div class="contract-picker card">
-        <div class="card-title">Sélectionner un contrat</div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:4px;text-align:center;font-size:13px;color:var(--text-secondary)">
-          <div>♠</div><div>♣</div><div>♦</div><div>♥</div><div>NT</div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px" id="fh-contract-picker"></div>
-
-        <div class="contract-value-display" id="fh-contract-value">
-          <span>Sélectionnez un contrat</span>
-        </div>
-        <div class="setting-sub" style="margin-bottom:12px">En équipes, aucun score négatif. Un contrat réussi donne les points au miseur; un contrat chuté donne la même valeur à l'équipe adverse. Victoire à 1000 points.</div>
-
-        <div class="card-title" id="fh-bidder-title" style="margin-top:12px">Équipe qui enchérit</div>
-        <div class="team-select-row" id="fh-bidder-buttons"></div>
-
-        <div class="result-btns" id="fh-team-result-btns">
-          <button class="btn btn-success" id="fh-btn-success" onclick="UI.fhApplyResult(true)" disabled>✅ Réussi</button>
-          <button class="btn btn-danger" id="fh-btn-fail" onclick="UI.fhApplyResult(false)" disabled>❌ Chuté</button>
-        </div>
-
-        <div id="fh-individual-tricks" style="display:none">
-          <div class="divider"></div>
-          <div class="card-title">Le miseur a-t-il gagné ?</div>
-          <div class="result-btns">
-            <button class="btn btn-success" id="fh-btn-bidder-win" onclick="UI.fhIndividualResult(true)" disabled>✅ Oui, mise gagnée</button>
-            <button class="btn btn-danger" id="fh-btn-bidder-lose" onclick="UI.fhIndividualResult(false)" disabled>❌ Non, mise perdue</button>
-          </div>
-          <div class="setting-sub" style="margin-top:10px">
-            Si la mise est gagnée, les points du contrat sont attribués immédiatement. Si elle est perdue, seules les levées des adversaires seront demandées.
-          </div>
-          <div id="fh-opponent-tricks-panel" style="display:none"></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Ajustement manuel / pénalité</div>
-        <div class="form-group">
-          <label class="form-label">Équipe ou joueur</label>
-          <select class="form-select" id="fh-adjust-entity"></select>
-        </div>
-        <div class="generic-input-row">
-          <input class="generic-delta-input" type="number" id="fh-adjust-value" min="0" value="0" placeholder="Points">
-          <button class="btn btn-success btn-icon" onclick="UI.fhManualAdjust(1)" title="Ajouter">+</button>
-          <button class="btn btn-danger btn-icon" onclick="UI.fhManualAdjust(-1)" title="Retirer">−</button>
-        </div>
-        <div class="setting-sub" style="margin-top:8px">Au 500, un retrait ne peut jamais faire descendre le score sous 0. Un mot de passe est exigé pour chaque ajustement.</div>
+      <div class="fh-action-row">
+        <button class="btn btn-primary" onclick="UI.openFhResultModal()">✓ Partie terminée</button>
+        <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">± Ajustement manuel</button>
       </div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
+      <div class="fh-starter-callout" id="fh-starter-callout" aria-live="polite">
+        <span>À TOI DE COMMENCER</span>
+        <strong id="fh-starter-callout-name">—</strong>
+      </div>
+      <div class="app-modal-overlay" id="app-modal-overlay" onclick="UI.closeModalFromBackdrop(event)" style="display:none">
+        <div class="app-modal-card" id="app-modal-card">
+          <div class="app-modal-header">
+            <div class="app-modal-title" id="app-modal-title"></div>
+            <button class="btn-back" onclick="UI.closeAppModal()">✕</button>
+          </div>
+          <div class="app-modal-body" id="app-modal-body"></div>
+        </div>
+      </div>
       <div class="bottom-safe"></div>
     </div>
 

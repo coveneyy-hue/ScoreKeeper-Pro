@@ -1148,3 +1148,116 @@ body {
 .stats-row > div:nth-child(2) { text-align:center; font-variant-numeric:tabular-nums; }
 .team-card .score-badge { display:inline-block; margin-top:8px; }
 @media (max-width:430px) { .stats-filter-grid { grid-template-columns:1fr; } }
+
+/* v1.40 compact 500 layout */
+.five-hundred-teams {
+  gap: 10px;
+}
+.team-card {
+  padding: 14px;
+}
+.team-score {
+  font-size: 38px;
+}
+.five-hundred-teams.individual .team-score {
+  font-size: 34px;
+}
+.fh-series-inline {
+  margin: 6px 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.fh-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+.fh-info-group + .fh-info-group {
+  margin-top: 16px;
+}
+.fh-contract-table {
+  width: 100%;
+}
+.fh-contract-head {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-bottom: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.fh-contract-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.fh-contract-value-cell {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  padding: 6px 4px;
+}
+.fh-contract-value-cell .suit,
+.fh-contract-value-cell .bid {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.fh-contract-value-cell strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.app-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.72);
+  z-index: 250;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.app-modal-card {
+  width: min(720px, 100%);
+  max-height: min(88vh, 900px);
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 48px rgba(0,0,0,.45);
+}
+.app-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.app-modal-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+.app-modal-body {
+  padding: 16px;
+}
+@media (max-width: 680px) {
+  .fh-action-row {
+    grid-template-columns: 1fr;
+  }
+  .fh-contract-grid,
+  .fh-contract-head {
+    gap: 4px;
+  }
+  .fh-contract-value-cell {
+    min-height: 56px;
+  }
+}
