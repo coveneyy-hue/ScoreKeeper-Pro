@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.33';
+const APP_VERSION = '1.34';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -386,13 +386,13 @@ const Games = {
 
   /* ─── Jeu de 500 ─── */
   fiveHundred: {
-    createTeams(team0Name, team1Name, tablePlayerNames = []) {
+    createTeams(team0Name, team1Name, tablePlayerNames = [], seriesBestOf = 1) {
       const defaults = ['Joueur 1', 'Joueur 2', 'Joueur 3', 'Joueur 4'];
       const enteredNames = Array.from({length: 4}, (_, i) => tablePlayerNames[i] || defaults[i]);
-      // À chaque nouvelle partie, l'ordre autour de la table est tiré au hasard.
-      // Les places 1+3 forment ensuite l'équipe 1 et les places 2+4 l'équipe 2.
       const names = Utils.shuffle(enteredNames);
       const firstBidderIdx = Utils.randomIndex(names.length);
+      const bestOf = [1, 3, 5, 7].includes(parseInt(seriesBestOf, 10)) ? parseInt(seriesBestOf, 10) : 1;
+      const winsNeeded = Math.floor(bestOf / 2) + 1;
       return {
         id: Utils.uid(),
         type: 'fiveHundred',
@@ -404,9 +404,19 @@ const Games = {
           { name: team0Name, score: 0 },
           { name: team1Name, score: 0 },
         ],
-        // Les partenaires sont face à face : places 1+3 et 2+4.
+        // Les partenaires sont les positions 1+3 et 2+4 dans l'ordre aléatoire affiché.
         tablePlayers: names.map((name, i) => ({ name, seatIdx: i, teamIdx: i % 2 })),
         nextBidderIdx: firstBidderIdx,
+        scoreLimit: 1000,
+        series: {
+          bestOf,
+          winsNeeded,
+          wins: [0, 0],
+          gameNumber: 1,
+          games: [],
+          finished: false,
+          winnerTeamIdx: null,
+        },
         history: [],
       };
     },
@@ -440,7 +450,7 @@ const Games = {
     },
 
     scoreLimit(game) {
-      return game.mode === 'individual' ? 1000 : 500;
+      return 1000;
     },
 
     /** Joueurs dans l'ordre d'affichage autour de la table. */
@@ -509,52 +519,112 @@ const Games = {
       return parseInt(contractKey, 10) === 10;
     },
 
-    /** Applique un résultat de contrat en mode équipes. */
+    teamMembers(game, teamIdx) {
+      return this.tablePlayers(game).filter(p => p.teamIdx === teamIdx).map(p => p.name);
+    },
+
+    ensureSeries(game) {
+      if (game.mode !== 'teams') return null;
+      if (!game.series) {
+        game.series = { bestOf: 1, winsNeeded: 1, wins: [0, 0], gameNumber: 1, games: [], finished: false, winnerTeamIdx: null };
+      }
+      if (!Array.isArray(game.series.wins)) game.series.wins = [0, 0];
+      if (!Array.isArray(game.series.games)) game.series.games = [];
+      (game.teams || []).forEach(t => { t.score = Math.max(0, Number(t.score) || 0); });
+      game.scoreLimit = 1000;
+      return game.series;
+    },
+
+    /** Enregistre la partie de 500 en équipes et prépare la suivante si la série continue. */
+    completeTeamGame(game, winnerTeamIdx) {
+      const series = this.ensureSeries(game);
+      const finishedAt = new Date().toISOString();
+      const gameNumber = series.gameNumber || (series.games.length + 1);
+      const teamsSnapshot = game.teams.map((team, idx) => ({
+        name: team.name,
+        members: this.teamMembers(game, idx),
+        score: team.score,
+      }));
+      const result = {
+        gameNumber,
+        finishedAt,
+        winnerTeamIdx,
+        winnerTeamName: game.teams[winnerTeamIdx].name,
+        winnerMembers: this.teamMembers(game, winnerTeamIdx),
+        teams: teamsSnapshot,
+        finalScores: game.teams.map(t => t.score),
+      };
+      series.games.push(result);
+      series.wins[winnerTeamIdx] = (series.wins[winnerTeamIdx] || 0) + 1;
+
+      const seriesWon = series.wins[winnerTeamIdx] >= series.winsNeeded;
+      if (seriesWon) {
+        series.finished = true;
+        series.winnerTeamIdx = winnerTeamIdx;
+        game.status = 'finished';
+        game.winnerName = game.teams[winnerTeamIdx].name;
+        game.winnerMembers = this.teamMembers(game, winnerTeamIdx);
+        game.finishedAt = finishedAt;
+        game.winReason = 'series';
+      } else {
+        game.teams.forEach(t => { t.score = 0; });
+        series.gameNumber = gameNumber + 1;
+        delete game.winnerName;
+        delete game.winnerMembers;
+        delete game.winReason;
+        game.status = 'active';
+      }
+      return { result, seriesWon, seriesWinner: seriesWon ? game.teams[winnerTeamIdx] : null };
+    },
+
+    /** Applique un résultat de contrat en mode équipes.
+     * Aucun score négatif : si le miseur chute, la valeur du contrat est remise à l'équipe adverse.
+     * Une partie est gagnée dès qu'une équipe atteint 1000 points.
+     */
     applyContract(game, teamIdx, contractKey, success) {
-      const pts   = this.contractPoints(game, contractKey);
-      const team  = game.teams[teamIdx];
-      const old   = team.score;
-      const delta = success ? pts : -pts;
-      team.score += delta;
+      this.ensureSeries(game);
+      const pts = this.contractPoints(game, contractKey);
+      const opponentIdx = teamIdx === 0 ? 1 : 0;
+      const awardedIdx = success ? teamIdx : opponentIdx;
+      const awardedTeam = game.teams[awardedIdx];
+      const biddingTeam = game.teams[teamIdx];
+      const oldAwarded = awardedTeam.score;
+      awardedTeam.score = Math.max(0, oldAwarded + pts);
 
       game.history.push({
         kind: 'contract',
         timestamp: new Date().toISOString(),
-        team: team.name,
+        team: biddingTeam.name,
+        biddingTeamIdx: teamIdx,
+        awardedTeam: awardedTeam.name,
+        awardedTeamIdx: awardedIdx,
         contract: contractKey,
         points: pts,
         success,
-        oldValue: old,
-        delta,
-        newValue: team.score,
+        oldValue: oldAwarded,
+        delta: pts,
+        newValue: awardedTeam.score,
+        seriesGameNumber: game.series.gameNumber,
       });
       const nextBidder = this.advanceNextBidder(game);
       const lastHistory = game.history[game.history.length - 1];
       lastHistory.nextBidder = nextBidder.name;
-      lastHistory.nextBidderSeat = nextBidder.clock;
       game.updatedAt = new Date().toISOString();
 
-      let winner = null;
-      if (success && this.isGameContract(contractKey)) {
-        // Une mise de 10 réussie (« la partie ») gagne immédiatement,
-        // même si l'équipe était auparavant dans le négatif.
-        winner = team;
-        game.status = 'finished';
-        game.winnerName = team.name;
-        game.winReason = 'contract10';
-      } else {
-        winner = game.teams.find(t => t.score >= 500) || null;
-        if (!winner) {
-          const loserIdx = game.teams.findIndex(t => t.score <= -500);
-          if (loserIdx >= 0) winner = game.teams[loserIdx === 0 ? 1 : 0];
-        }
-        if (winner) {
-          game.status = 'finished';
-          game.winnerName = winner.name;
-          game.winReason = 'score';
-        }
+      let winner = game.teams.find(t => t.score >= 1000) || null;
+      let gameCompletion = null;
+      if (winner) {
+        const winnerIdx = game.teams.indexOf(winner);
+        gameCompletion = this.completeTeamGame(game, winnerIdx);
       }
-      return { delta, newValue: team.score, winner };
+      return {
+        delta: pts,
+        awardedTeam,
+        awardedTeamIdx: awardedIdx,
+        newValue: awardedTeam.score,
+        winner,
+        gameCompletion,
+      };
     },
 
     /**
@@ -638,7 +708,8 @@ const Games = {
       const list = this.entities(game);
       const entity = list[entityIdx];
       const old = entity.score;
-      entity.score = game.mode === 'individual' ? Math.max(0, old + delta) : old + delta;
+      // Tous les modes 500 sont maintenant sans score négatif.
+      entity.score = Math.max(0, old + delta);
       const appliedDelta = entity.score - old;
 
       game.history.push({
@@ -652,23 +723,21 @@ const Games = {
       });
       game.updatedAt = new Date().toISOString();
 
-      let winner = null;
-      if (game.mode === 'individual') {
-        winner = list.find(e => e.score >= 1000) || null;
-      } else {
-        winner = list.find(e => e.score >= 500) || null;
-        if (!winner) {
-          const loserIdx = list.findIndex(e => e.score <= -500);
-          if (loserIdx >= 0) winner = list[loserIdx === 0 ? 1 : 0];
+      let winner = list.find(e => e.score >= 1000) || null;
+      let gameCompletion = null;
+      if (winner) {
+        if (game.mode === 'teams') {
+          gameCompletion = this.completeTeamGame(game, list.indexOf(winner));
+        } else {
+          game.status = 'finished';
+          game.winnerName = winner.name;
+          game.finishedAt = new Date().toISOString();
+          game.winReason = 'score';
         }
       }
-      if (winner) {
-        game.status = 'finished';
-        game.winnerName = winner.name;
-        game.winReason = 'score';
-      }
-      return { old, delta: appliedDelta, newValue: entity.score, winner };
+      return { old, delta: appliedDelta, newValue: entity.score, winner, gameCompletion };
     }
+
   },
 
   /* ─── Générique ─── */
@@ -706,6 +775,110 @@ const Games = {
       return { old, newValue: p.score, winner };
     }
   }
+};
+
+/* ================================================================
+   STATISTIQUES : normalisation des parties terminées
+   ================================================================ */
+
+const Stats = {
+  gameLabel(type) {
+    return ({ hearts: 'Dame de Pique', magic: 'Magic', fiveHundred: '500', generic: 'Générique' })[type] || type;
+  },
+
+  nameKey(name) { return String(name || '').trim().toLocaleLowerCase('fr-CA'); },
+
+  teamKey(members) {
+    return (members || []).map(n => this.nameKey(n)).sort().join('|');
+  },
+
+  teamLabel(members) {
+    return [...(members || [])].sort((a,b) => a.localeCompare(b, 'fr-CA')).join(' - ');
+  },
+
+  inferWinnerName(game) {
+    if (game.winnerName) return game.winnerName;
+    const players = game.players || [];
+    if (!players.length) return null;
+    if (game.type === 'hearts') {
+      const min = Math.min(...players.map(p => p.score));
+      const tied = players.filter(p => p.score === min);
+      return tied.length === 1 ? tied[0].name : null;
+    }
+    if (game.type === 'magic') {
+      const alive = players.filter(p => !p.dead && p.life > 0);
+      return alive.length === 1 ? alive[0].name : null;
+    }
+    if (game.type === 'generic') {
+      const max = Math.max(...players.map(p => p.score));
+      const tied = players.filter(p => p.score === max);
+      return tied.length === 1 ? tied[0].name : null;
+    }
+    return null;
+  },
+
+  recordsFromGame(game) {
+    const records = [];
+    if (game.type === 'fiveHundred' && (game.mode || 'teams') === 'teams' && game.series?.games?.length) {
+      game.series.games.forEach((sg, idx) => {
+        const teams = (sg.teams || game.teams.map((t, ti) => ({
+          name: t.name,
+          members: Games.fiveHundred.teamMembers(game, ti),
+        }))).map((t, ti) => ({
+          name: t.name,
+          members: t.members || Games.fiveHundred.teamMembers(game, ti),
+          key: this.teamKey(t.members || Games.fiveHundred.teamMembers(game, ti)),
+        }));
+        const winnerTeamIdx = Number.isInteger(sg.winnerTeamIdx) ? sg.winnerTeamIdx : 0;
+        records.push({
+          id: `${game.id}:series:${sg.gameNumber || idx + 1}`,
+          date: sg.finishedAt || game.updatedAt || game.createdAt,
+          gameType: 'fiveHundred', gameLabel: '500', mode: 'teams',
+          players: teams.flatMap(t => t.members),
+          teams,
+          winnerPlayers: teams[winnerTeamIdx]?.members || [],
+          winnerTeamKey: teams[winnerTeamIdx]?.key || null,
+        });
+      });
+      return records;
+    }
+
+    if (game.status !== 'finished') return records;
+    if (game.type === 'fiveHundred' && (game.mode || 'teams') === 'teams') {
+      const teams = (game.teams || []).map((t, ti) => {
+        const members = Games.fiveHundred.teamMembers(game, ti);
+        return { name: t.name, members, key: this.teamKey(members) };
+      });
+      const winnerIdx = teams.findIndex(t => t.name === game.winnerName);
+      records.push({
+        id: game.id, date: game.finishedAt || game.updatedAt || game.createdAt,
+        gameType: 'fiveHundred', gameLabel: '500', mode: 'teams',
+        players: teams.flatMap(t => t.members), teams,
+        winnerPlayers: winnerIdx >= 0 ? teams[winnerIdx].members : [],
+        winnerTeamKey: winnerIdx >= 0 ? teams[winnerIdx].key : null,
+      });
+      return records;
+    }
+
+    const players = (game.players || []).map(p => p.name);
+    const winnerName = this.inferWinnerName(game);
+    records.push({
+      id: game.id,
+      date: game.finishedAt || game.updatedAt || game.createdAt,
+      gameType: game.type,
+      gameLabel: this.gameLabel(game.type),
+      mode: 'individual',
+      players,
+      teams: [],
+      winnerPlayers: winnerName ? [winnerName] : [],
+      winnerTeamKey: null,
+    });
+    return records;
+  },
+
+  records(games) { return (games || []).flatMap(g => this.recordsFromGame(g)); },
+
+  pct(wins, games) { return games ? (wins * 100 / games) : 0; },
 };
 
 /* ================================================================
@@ -792,6 +965,16 @@ const Screens = {
             <input class="form-input" id="team1-name" type="text" value="Nous" maxlength="20" oninput="UI.updateNewFhTeamLabels()">
           </div>
 
+          <div class="form-group">
+            <label class="form-label">Format de la série</label>
+            <select class="form-select" id="fh-series-bestof">
+              <option value="1" selected>1 partie</option>
+              <option value="3">2 de 3</option>
+              <option value="5">3 de 5</option>
+              <option value="7">4 de 7</option>
+            </select>
+          </div>
+
           <div class="divider"></div>
           <div class="card-title">Joueurs autour de la table</div>
           <div class="setting-sub" style="margin-bottom:12px">Les 4 noms seront mélangés au hasard au démarrage. Dans l'ordre obtenu, les joueurs 1 et 3 seront partenaires; les joueurs 2 et 4 seront partenaires.</div>
@@ -800,12 +983,11 @@ const Screens = {
               <div class="player-input-row fh-team-player-row">
                 <div class="player-input-num">${i + 1}</div>
                 <input class="form-input" type="text" value="${name}" maxlength="16" data-team-player="${i}">
-                <span class="badge badge-accent fh-new-team-label" data-team-idx="${i % 2}">${i % 2 === 0 ? 'Eux' : 'Nous'}</span>
               </div>
             `).join('')}
           </div>
-          <div class="setting-sub" style="margin-top:12px"><strong id="fh-new-team-summary-0">Eux : Yannick + Victor</strong><br><strong id="fh-new-team-summary-1">Nous : Lily-Rose + Julie</strong></div>
-          <div class="setting-sub" style="margin-top:10px">500 en équipes : victoire à +500 ou défaite à -500. Une mise de Partie réussie gagne immédiatement la partie.</div>
+          <div class="setting-sub" style="margin-top:12px"><strong id="fh-new-team-summary-0">Équipes déterminées après le tirage de l'ordre.</strong><br><strong id="fh-new-team-summary-1">Les positions 1+3 affronteront les positions 2+4.</strong></div>
+          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Si le miseur chute, la valeur du contrat va à l'équipe adverse. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
         </div>
 
         <div class="card" id="fh-new-individual" style="display:none">
@@ -824,7 +1006,6 @@ const Screens = {
       `;
       UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
       UI.renderNewFhPlayerInputs();
-      document.querySelectorAll('#fh-team-player-inputs input').forEach((el) => el.addEventListener('input', () => UI.updateNewFhTeamLabels()));
       UI.updateNewFhTeamLabels();
     } else {
       const defaultCount = type === 'magic' ? 4 : type === 'hearts' ? 4 : 2;
@@ -957,22 +1138,18 @@ const Screens = {
     Games.fiveHundred.ensureTableSetup(game);
 
     const list = game.mode === 'individual' ? game.players : game.teams;
-    const limit = game.mode === 'individual' ? 1000 : 500;
+    if (game.mode === 'teams') Games.fiveHundred.ensureSeries(game);
     let winner = game.winnerName ? list.find(e => e.name === game.winnerName) : null;
-    if (!winner) {
-      if (game.mode === 'individual') {
-        winner = list.find(e => e.score >= 1000) || null;
-      } else {
-        winner = list.find(e => e.score >= 500) || null;
-        if (!winner) {
-          const loserIdx = list.findIndex(e => e.score <= -500);
-          if (loserIdx >= 0) winner = list[loserIdx === 0 ? 1 : 0];
-        }
-      }
-    }
+    if (!winner && game.mode === 'individual') winner = list.find(e => e.score >= 1000) || null;
 
     document.getElementById('fh-screen-title').textContent = game.mode === 'individual' ? '🃏 500 individuel' : '🃏 Jeu de 500';
-    document.getElementById('fh-mode-badge').textContent = game.mode === 'individual' ? 'Individuel · 1000 pts' : 'Équipes · -500 à +500';
+    if (game.mode === 'individual') {
+      document.getElementById('fh-mode-badge').textContent = 'Individuel · 1000 pts';
+    } else {
+      const series = game.series;
+      const label = series.bestOf === 1 ? '1 partie' : `${series.winsNeeded} de ${series.bestOf}`;
+      document.getElementById('fh-mode-badge').textContent = `Équipes · 1000 pts · ${label}`;
+    }
 
     const teamsEl = document.getElementById('fh-teams');
     teamsEl.classList.toggle('individual', game.mode === 'individual');
@@ -980,6 +1157,7 @@ const Screens = {
       <div class="team-card ${winner === t ? 'winner' : ''}">
         <div class="team-name">${Utils.esc(t.name)}</div>
         <div class="team-score ${t.score < 0 ? 'negative' : 'positive'}">${t.score}</div>
+        ${game.mode === 'teams' ? `<div class="score-badge">Victoires série : ${game.series?.wins?.[i] || 0}/${game.series?.winsNeeded || 1}</div>` : ''}
       </div>
     `).join('');
 
@@ -1042,6 +1220,92 @@ const Screens = {
       document.getElementById('generic-winner-name').textContent = winner.name;
     } else {
       document.getElementById('generic-victory').style.display = 'none';
+    }
+  },
+
+  /* ─── Statistiques globales ─── */
+  async render_stats() {
+    const games = await DB.getAll('games');
+    const allRecords = Stats.records(games);
+    const gameFilter = document.getElementById('stats-game-filter')?.value || 'all';
+    const modeFilter = document.getElementById('stats-mode-filter')?.value || 'all';
+    const periodFilter = document.getElementById('stats-period-filter')?.value || 'all';
+    const playerFilter = document.getElementById('stats-player-filter')?.value || 'all';
+    const teamFilter = document.getElementById('stats-team-filter')?.value || 'all';
+
+    const allPlayers = new Map();
+    const allTeams = new Map();
+    allRecords.forEach(r => {
+      r.players.forEach(n => { const k = Stats.nameKey(n); if (!allPlayers.has(k)) allPlayers.set(k, n); });
+      r.teams.forEach(t => { if (t.key && !allTeams.has(t.key)) allTeams.set(t.key, Stats.teamLabel(t.members)); });
+    });
+
+    const fillSelect = (id, entries, allLabel, current) => {
+      const el = document.getElementById(id); if (!el) return;
+      el.innerHTML = `<option value="all">${allLabel}</option>` + entries.map(([v,l]) => `<option value="${Utils.esc(v)}">${Utils.esc(l)}</option>`).join('');
+      el.value = entries.some(([v]) => v === current) ? current : 'all';
+    };
+    fillSelect('stats-player-filter', [...allPlayers.entries()].sort((a,b)=>a[1].localeCompare(b[1],'fr-CA')), 'Tous les joueurs', playerFilter);
+    fillSelect('stats-team-filter', [...allTeams.entries()].sort((a,b)=>a[1].localeCompare(b[1],'fr-CA')), 'Toutes les équipes', teamFilter);
+
+    const now = Date.now();
+    const days = periodFilter === '30' ? 30 : periodFilter === '90' ? 90 : periodFilter === '365' ? 365 : null;
+    let records = allRecords.filter(r => {
+      if (gameFilter !== 'all' && r.gameType !== gameFilter) return false;
+      if (modeFilter !== 'all' && r.mode !== modeFilter) return false;
+      if (days && (now - new Date(r.date).getTime()) > days * 86400000) return false;
+      if (playerFilter !== 'all' && !r.players.some(n => Stats.nameKey(n) === playerFilter)) return false;
+      if (teamFilter !== 'all' && !r.teams.some(t => t.key === teamFilter)) return false;
+      return true;
+    });
+
+    const playerMap = new Map();
+    records.forEach(r => r.players.forEach(name => {
+      const key = Stats.nameKey(name);
+      if (playerFilter !== 'all' && key !== playerFilter) return;
+      const x = playerMap.get(key) || { name, games:0, wins:0 };
+      x.games++;
+      if (r.winnerPlayers.some(w => Stats.nameKey(w) === key)) x.wins++;
+      playerMap.set(key, x);
+    }));
+
+    const teamMap = new Map();
+    records.filter(r => r.mode === 'teams').forEach(r => r.teams.forEach(t => {
+      if (teamFilter !== 'all' && t.key !== teamFilter) return;
+      const x = teamMap.get(t.key) || { name: Stats.teamLabel(t.members), games:0, wins:0 };
+      x.games++;
+      if (r.winnerTeamKey === t.key) x.wins++;
+      teamMap.set(t.key, x);
+    }));
+
+    const detailMap = new Map();
+    records.forEach(r => r.players.forEach(name => {
+      const keyName = Stats.nameKey(name);
+      if (playerFilter !== 'all' && keyName !== playerFilter) return;
+      const key = `${keyName}|${r.gameType}|${r.mode}`;
+      const x = detailMap.get(key) || { name, game:r.gameLabel, mode:r.mode, games:0, wins:0 };
+      x.games++;
+      if (r.winnerPlayers.some(w => Stats.nameKey(w) === keyName)) x.wins++;
+      detailMap.set(key, x);
+    }));
+
+    const rowHtml = (x, extra='') => `<div class="stats-row"><div class="stats-main"><strong>${Utils.esc(x.name)}</strong>${extra}</div><div>${x.wins}/${x.games}</div><div class="stats-pct">${Stats.pct(x.wins,x.games).toFixed(1)} %</div></div>`;
+    const playersEl = document.getElementById('stats-player-results');
+    const teamsEl = document.getElementById('stats-team-results');
+    const detailEl = document.getElementById('stats-detail-results');
+    const summaryEl = document.getElementById('stats-summary');
+    if (summaryEl) summaryEl.innerHTML = `<strong>${records.length}</strong> partie(s) terminée(s) correspondant aux filtres`;
+    if (playersEl) {
+      const rows = [...playerMap.values()].sort((a,b)=>b.games-a.games || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games));
+      playersEl.innerHTML = rows.length ? rows.map(x=>rowHtml(x)).join('') : '<div class="empty-state-text">Aucune statistique individuelle</div>';
+    }
+    if (teamsEl) {
+      const rows = [...teamMap.values()].sort((a,b)=>b.games-a.games || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games));
+      teamsEl.innerHTML = rows.length ? rows.map(x=>rowHtml(x)).join('') : '<div class="empty-state-text">Aucune statistique d’équipe</div>';
+    }
+    if (detailEl) {
+      const rows = [...detailMap.values()].sort((a,b)=>a.name.localeCompare(b.name,'fr-CA') || a.game.localeCompare(b.game,'fr-CA'));
+      detailEl.innerHTML = rows.length ? rows.map(x=>rowHtml(x, `<span class="stats-sub">${Utils.esc(x.game)} · ${x.mode === 'teams' ? 'Équipe' : 'Individuel'}</span>`)).join('') : '<div class="empty-state-text">Aucun détail</div>';
     }
   },
 
@@ -1112,11 +1376,10 @@ const Screens = {
               <span class="history-player">${Utils.esc(e.team)} · ${e.contract}</span>
               <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
             </div>
-            <div class="history-detail">
-              ${e.oldValue} <span class="${e.delta >= 0 ? 'history-delta-pos' : 'history-delta-neg'}">${Utils.signed(e.delta)}</span> → ${e.newValue}
-              (${e.success ? '✅ Réussi' : '❌ Chuté'})
-            </div>
-            ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}${e.nextBidderSeat ? ` · ${Utils.esc(e.nextBidderSeat)}` : ''}</div>` : ''}
+            <div class="history-detail">${e.success ? '✅ Contrat réussi' : '❌ Contrat chuté'} · ${e.points || e.delta} pts à ${Utils.esc(e.awardedTeam || e.team)}</div>
+            <div class="history-detail">${Utils.esc(e.awardedTeam || e.team)} : ${e.oldValue} +${e.delta} → ${e.newValue}</div>
+            ${e.seriesGameNumber ? `<div class="history-detail">Partie ${e.seriesGameNumber} de la série</div>` : ''}
+            ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}</div>` : ''}
           </div>
         `;
       } else {
@@ -1241,15 +1504,10 @@ const UI = {
       document.getElementById('team0-name')?.value.trim() || 'Équipe 1',
       document.getElementById('team1-name')?.value.trim() || 'Équipe 2',
     ];
-    document.querySelectorAll('.fh-new-team-label').forEach((el) => {
-      const idx = parseInt(el.dataset.teamIdx || 0, 10);
-      el.textContent = teamNames[idx];
-    });
-    const names = Array.from(document.querySelectorAll('#fh-team-player-inputs input')).map((el, i) => el.value.trim() || `Joueur ${i + 1}`);
     const s0 = document.getElementById('fh-new-team-summary-0');
     const s1 = document.getElementById('fh-new-team-summary-1');
-    if (s0) s0.textContent = `${teamNames[0]} : ${names[0] || 'Joueur 1'} + ${names[2] || 'Joueur 3'}`;
-    if (s1) s1.textContent = `${teamNames[1]} : ${names[1] || 'Joueur 2'} + ${names[3] || 'Joueur 4'}`;
+    if (s0) s0.textContent = `${teamNames[0]} : positions 1 + 3 après tirage`;
+    if (s1) s1.textContent = `${teamNames[1]} : positions 2 + 4 après tirage`;
   },
 
   renderNewFhPlayerInputs() {
@@ -1298,7 +1556,8 @@ const UI = {
           const t1 = document.getElementById('team1-name').value.trim() || 'Nous';
           const teamPlayerInputs = document.querySelectorAll('#fh-team-player-inputs input');
           const tablePlayerNames = Array.from(teamPlayerInputs).map((inp, i) => inp.value.trim() || `Joueur ${i + 1}`);
-          game = Games.fiveHundred.createTeams(t0, t1, tablePlayerNames);
+          const seriesBestOf = parseInt(document.getElementById('fh-series-bestof')?.value || '1', 10);
+          game = Games.fiveHundred.createTeams(t0, t1, tablePlayerNames, seriesBestOf);
         }
 
       } else {
@@ -1440,6 +1699,8 @@ const UI = {
             const members = seats.filter(p => p.teamIdx === teamIdx).map(p => Utils.esc(p.name)).join(' + ');
             return `<div><strong>${Utils.esc(team.name)}</strong> : ${members}</div>`;
           }).join('')}
+          <div class="divider"></div>
+          <div><strong>Partie ${game.series?.gameNumber || 1}</strong> · Série ${game.series?.wins?.[0] || 0}-${game.series?.wins?.[1] || 0} · ${game.series?.winsNeeded || 1} victoire(s) requise(s)</div>
         </div>`
       : '';
 
@@ -1655,20 +1916,37 @@ const UI = {
     this.unlockFhSound();
     const game = State.currentGame;
     if (game.mode === 'individual') return;
-    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, UI._selectedContract, success);
+    const contract = UI._selectedContract;
+    const biddingTeamName = game.teams[UI._selectedTeam].name;
+    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, contract, success);
     await DB.save('games', game);
 
     const next = Games.fiveHundred.nextBidder(game);
+    const awarded = result.awardedTeam?.name || '';
     Utils.toast(
-      `${success ? `✅ +${Games.fiveHundred.contractPoints(game, UI._selectedContract)} pts` : `❌ ${result.delta} pts`} · Prochaine mise : ${next.name}`,
-      success ? 'success' : 'error',
-      4200
+      success
+        ? `✅ ${biddingTeamName} +${Games.fiveHundred.contractPoints(game, contract)} pts · Prochaine mise : ${next.name}`
+        : `❌ Contrat chuté : +${Games.fiveHundred.contractPoints(game, contract)} pts à ${awarded} · Prochaine mise : ${next.name}`,
+      success ? 'success' : 'info',
+      5000
     );
 
     UI._selectedContract = null;
     UI._selectedTeam = null;
+
+    if (result.gameCompletion) {
+      const gc = result.gameCompletion;
+      const series = game.series;
+      if (gc.seriesWon) {
+        await DB.save('games', game);
+        alert(`Série gagnée par ${gc.seriesWinner.name} ! Résultat : ${series.wins[0]} - ${series.wins[1]}.`);
+      } else {
+        alert(`Partie ${gc.result.gameNumber} gagnée par ${gc.result.winnerTeamName}. Série : ${series.wins[0]} - ${series.wins[1]}. Les scores repartent à 0 pour la prochaine partie.`);
+      }
+    }
+
     Screens.render_five_hundred();
-    setTimeout(() => UI.announceFhStarter(true), 120);
+    if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
   async fhApplyIndividualSuccess() {
@@ -1791,17 +2069,47 @@ const UI = {
     input.click();
   },
 
+  refreshStats() { Screens.render_stats(); },
+
+  /** Garantit qu'une partie archivée possède un gagnant exploitable par les statistiques. */
+  resolveWinnerBeforeArchive(game) {
+    if (game.winnerName) return true;
+    const inferred = Stats.inferWinnerName(game);
+    if (inferred) { game.winnerName = inferred; return true; }
+
+    const candidates = game.mode === 'teams'
+      ? (game.teams || []).map(t => t.name)
+      : (game.players || []).map(p => p.name);
+    if (!candidates.length) return true;
+    const answer = prompt(`Qui a gagné ?\n${candidates.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\nEntrez le numéro du gagnant.`);
+    if (answer === null) return confirm('Archiver sans gagnant ? Cette partie ne comptera pas comme victoire dans les statistiques.');
+    const idx = parseInt(answer, 10) - 1;
+    if (idx < 0 || idx >= candidates.length) {
+      Utils.toast('Gagnant invalide', 'error');
+      return false;
+    }
+    game.winnerName = candidates[idx];
+    return true;
+  },
+
   /* ─── FIN DE PARTIE ─── */
   async endGame() {
     if (!State.currentGame) return;
-    const confirmed = confirm('Terminer la partie ? Elle sera archivée.');
-    if (!confirmed) return;
+    const game = State.currentGame;
+    const isUnfinishedSeries = game.type === 'fiveHundred' && game.mode === 'teams' && game.series && !game.series.finished && game.series.games.length > 0;
+    const msg = isUnfinishedSeries
+      ? `La série n'est pas terminée (${game.series.wins[0]}-${game.series.wins[1]}). Archiver quand même ? Les parties déjà complétées resteront dans les statistiques.`
+      : 'Terminer la partie ? Elle sera archivée.';
+    if (!confirm(msg)) return;
 
-    State.currentGame.status = 'finished';
-    State.currentGame.finishedAt = new Date().toISOString();
-    await DB.save('games', State.currentGame);
+    if (!(game.type === 'fiveHundred' && game.mode === 'teams' && game.series?.games?.length)) {
+      if (!this.resolveWinnerBeforeArchive(game)) return;
+    }
+    game.status = 'finished';
+    game.finishedAt = game.finishedAt || new Date().toISOString();
+    await DB.save('games', game);
     State.currentGame = null;
-    Utils.toast('Partie terminée', 'info');
+    Utils.toast('Partie terminée et statistiques mises à jour', 'info');
     Router.go('home');
   },
 
@@ -1875,6 +2183,8 @@ function buildScreenHTML() {
           <div class="game-card-desc">Tout type de jeu</div>
         </div>
       </div>
+
+      <button class="btn btn-secondary" onclick="Router.go('stats')">📊 Statistiques</button>
 
       <div class="card">
         <div class="card-title">Données</div>
@@ -1987,7 +2297,7 @@ function buildScreenHTML() {
         </div>
       </div>
 
-      <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · -500 à +500</div>
+      <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · 1000 pts</div>
       <div class="card" id="fh-table-info"></div>
       <div class="five-hundred-teams" id="fh-teams"></div>
 
@@ -2010,7 +2320,7 @@ function buildScreenHTML() {
         <div class="contract-value-display" id="fh-contract-value">
           <span>Sélectionnez un contrat</span>
         </div>
-        <div class="setting-sub" style="margin-bottom:12px">En équipes, la ligne Partie vaut 1040 ♠, 1060 ♣, 1080 ♦, 1100 ♥ et 1120 sans-atout. Une Partie réussie gagne immédiatement, même à partir d'un score négatif.</div>
+        <div class="setting-sub" style="margin-bottom:12px">En équipes, aucun score négatif. Un contrat réussi donne les points au miseur; un contrat chuté donne la même valeur à l'équipe adverse. Victoire à 1000 points.</div>
 
         <div class="card-title" id="fh-bidder-title" style="margin-top:12px">Équipe qui enchérit</div>
         <div class="team-select-row" id="fh-bidder-buttons"></div>
@@ -2045,7 +2355,7 @@ function buildScreenHTML() {
           <button class="btn btn-success btn-icon" onclick="UI.fhManualAdjust(1)" title="Ajouter">+</button>
           <button class="btn btn-danger btn-icon" onclick="UI.fhManualAdjust(-1)" title="Retirer">−</button>
         </div>
-        <div class="setting-sub" style="margin-top:8px">En individuel, un retrait ne peut jamais faire descendre le score sous 0.</div>
+        <div class="setting-sub" style="margin-top:8px">Au 500, un retrait ne peut jamais faire descendre le score sous 0.</div>
       </div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
@@ -2074,6 +2384,31 @@ function buildScreenHTML() {
       <div id="generic-players" class="generic-score-players"></div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
+      <div class="bottom-safe"></div>
+    </div>
+
+    <!-- ══ STATISTIQUES ══ -->
+    <div class="screen" id="screen-stats">
+      <div class="app-header">
+        <button class="btn-back" onclick="Router.go('home')">‹</button>
+        <div class="header-title">📊 Statistiques</div>
+      </div>
+
+      <div class="card stats-filters">
+        <div class="card-title">Filtres</div>
+        <div class="stats-filter-grid">
+          <div class="form-group"><label class="form-label">Jeu</label><select class="form-select" id="stats-game-filter" onchange="UI.refreshStats()"><option value="all">Tous les jeux</option><option value="fiveHundred">500</option><option value="hearts">Dame de Pique</option><option value="magic">Magic</option><option value="generic">Générique</option></select></div>
+          <div class="form-group"><label class="form-label">Mode</label><select class="form-select" id="stats-mode-filter" onchange="UI.refreshStats()"><option value="all">Tous</option><option value="individual">Individuel</option><option value="teams">Équipe</option></select></div>
+          <div class="form-group"><label class="form-label">Joueur</label><select class="form-select" id="stats-player-filter" onchange="UI.refreshStats()"><option value="all">Tous les joueurs</option></select></div>
+          <div class="form-group"><label class="form-label">Équipe</label><select class="form-select" id="stats-team-filter" onchange="UI.refreshStats()"><option value="all">Toutes les équipes</option></select></div>
+          <div class="form-group"><label class="form-label">Période</label><select class="form-select" id="stats-period-filter" onchange="UI.refreshStats()"><option value="all">Depuis toujours</option><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option></select></div>
+        </div>
+      </div>
+
+      <div class="card"><div class="card-title">Résumé</div><div id="stats-summary" class="stats-summary"></div></div>
+      <div class="card"><div class="card-title">Victoires par joueur</div><div class="stats-header"><span>Joueur</span><span>V/G</span><span>%</span></div><div id="stats-player-results" class="stats-list"></div></div>
+      <div class="card"><div class="card-title">Victoires par équipe</div><div class="stats-header"><span>Équipe</span><span>V/G</span><span>%</span></div><div id="stats-team-results" class="stats-list"></div></div>
+      <div class="card"><div class="card-title">Détail joueur par jeu</div><div class="stats-header"><span>Joueur / jeu</span><span>V/G</span><span>%</span></div><div id="stats-detail-results" class="stats-list"></div></div>
       <div class="bottom-safe"></div>
     </div>
 

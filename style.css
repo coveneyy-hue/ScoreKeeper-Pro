@@ -1015,7 +1015,7 @@ body {
 /* ── ScoreKeeper Pro 1.31 : ordre de table / ordre des mises ── */
 .fh-team-player-row {
   display: grid;
-  grid-template-columns: 28px 42px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
 }
 .fh-seat-mini {
@@ -1130,3 +1130,21 @@ body {
 .fh-starter-callout.active { visibility:visible; animation:fhStarterCallout 2.25s ease both; }
 @keyframes fhStarterCallout { 0%{opacity:0;transform:translate(-50%,-50%) scale(.72)} 12%{opacity:1;transform:translate(-50%,-50%) scale(1.08)} 25%,70%{opacity:1;transform:translate(-50%,-50%) scale(1)} 100%{opacity:0;transform:translate(-50%,-50%) scale(.94)} }
 @media (prefers-reduced-motion: reduce) { .fh-order-row.fh-starter-active,.fh-next-bidder.fh-starter-flash,.fh-starter-callout.active{animation:none} .fh-starter-callout.active{opacity:1;visibility:visible} }
+
+
+/* ── ScoreKeeper Pro 1.34 : séries 500 et statistiques ── */
+.stats-filter-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.stats-filter-grid .form-group { margin-bottom:0; }
+.stats-summary { font-size:14px; color:var(--text-secondary); }
+.stats-summary strong { color:var(--accent-2); font-size:22px; margin-right:4px; }
+.stats-list { display:flex; flex-direction:column; gap:7px; }
+.stats-header, .stats-row { display:grid; grid-template-columns:minmax(0,1fr) 64px 72px; gap:8px; align-items:center; }
+.stats-header { color:var(--text-secondary); font-size:11px; padding:0 10px 5px; text-transform:uppercase; letter-spacing:.5px; }
+.stats-row { background:var(--bg-elevated); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; }
+.stats-main { min-width:0; display:flex; flex-direction:column; }
+.stats-main strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stats-sub { color:var(--text-secondary); font-size:10px; margin-top:2px; }
+.stats-pct { color:var(--accent-2); font-weight:800; text-align:right; }
+.stats-row > div:nth-child(2) { text-align:center; font-variant-numeric:tabular-nums; }
+.team-card .score-badge { display:inline-block; margin-top:8px; }
+@media (max-width:430px) { .stats-filter-grid { grid-template-columns:1fr; } }
