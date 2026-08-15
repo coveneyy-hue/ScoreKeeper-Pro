@@ -6,7 +6,8 @@
 
 'use strict';
 
-const APP_VERSION = '1.34';
+const APP_VERSION = '1.36';
+const STATS_RESET_PASSWORD = 'yco302302';
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -108,6 +109,16 @@ const DB = {
     return new Promise((resolve, reject) => {
       const tx  = DB.db.transaction(store, 'readwrite');
       const req = tx.objectStore(store).delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror   = () => reject(req.error);
+    });
+  },
+
+  /** Vide complètement un store IndexedDB. */
+  async clear(store) {
+    return new Promise((resolve, reject) => {
+      const tx  = DB.db.transaction(store, 'readwrite');
+      const req = tx.objectStore(store).clear();
       req.onsuccess = () => resolve();
       req.onerror   = () => reject(req.error);
     });
@@ -968,8 +979,8 @@ const Screens = {
           <div class="form-group">
             <label class="form-label">Format de la série</label>
             <select class="form-select" id="fh-series-bestof">
-              <option value="1" selected>1 partie</option>
-              <option value="3">2 de 3</option>
+              <option value="1">1 partie</option>
+              <option value="3" selected>2 de 3</option>
               <option value="5">3 de 5</option>
               <option value="7">4 de 7</option>
             </select>
@@ -1226,7 +1237,13 @@ const Screens = {
   /* ─── Statistiques globales ─── */
   async render_stats() {
     const games = await DB.getAll('games');
-    const allRecords = Stats.records(games);
+    const statsResetAt = await DB.getSetting('statsResetAt', null);
+    const resetTimestamp = statsResetAt ? new Date(statsResetAt).getTime() : null;
+    const allRecords = Stats.records(games).filter(r => {
+      if (!resetTimestamp) return true;
+      const recordTimestamp = new Date(r.date).getTime();
+      return Number.isFinite(recordTimestamp) && recordTimestamp >= resetTimestamp;
+    });
     const gameFilter = document.getElementById('stats-game-filter')?.value || 'all';
     const modeFilter = document.getElementById('stats-mode-filter')?.value || 'all';
     const periodFilter = document.getElementById('stats-period-filter')?.value || 'all';
@@ -1294,7 +1311,12 @@ const Screens = {
     const teamsEl = document.getElementById('stats-team-results');
     const detailEl = document.getElementById('stats-detail-results');
     const summaryEl = document.getElementById('stats-summary');
-    if (summaryEl) summaryEl.innerHTML = `<strong>${records.length}</strong> partie(s) terminée(s) correspondant aux filtres`;
+    if (summaryEl) {
+      const resetInfo = statsResetAt
+        ? `<div class="stats-reset-info">Statistiques réinitialisées le ${Utils.esc(Utils.formatDate(statsResetAt))}</div>`
+        : '';
+      summaryEl.innerHTML = `<strong>${records.length}</strong> partie(s) terminée(s) correspondant aux filtres${resetInfo}`;
+    }
     if (playersEl) {
       const rows = [...playerMap.values()].sort((a,b)=>b.games-a.games || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games));
       playersEl.innerHTML = rows.length ? rows.map(x=>rowHtml(x)).join('') : '<div class="empty-state-text">Aucune statistique individuelle</div>';
@@ -2016,17 +2038,49 @@ const UI = {
   },
 
   /* ─── EXPORT / IMPORT ─── */
+  getLocalPreferences() {
+    const values = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key !== null) values[key] = localStorage.getItem(key);
+    }
+    return values;
+  },
+
+  restoreLocalPreferences(values = {}) {
+    localStorage.clear();
+    Object.entries(values || {}).forEach(([key, value]) => {
+      if (value !== null && value !== undefined) localStorage.setItem(key, String(value));
+    });
+  },
+
   async exportData() {
-    const games    = await DB.getAll('games');
-    const settings = await DB.getAll('settings');
+    const [games, settings, logs] = await Promise.all([
+      DB.getAll('games'),
+      DB.getAll('settings'),
+      DB.getAll('logs'),
+    ]);
+
     const data = {
+      format: 'scorekeeper-pro-full-backup',
+      formatVersion: 2,
       version: APP_VERSION,
       exportedAt: new Date().toISOString(),
+      data: {
+        games,
+        settings,
+        logs,
+        localStorage: this.getLocalPreferences(),
+      },
+      // Conserver ces champs au premier niveau pour compatibilité avec les anciennes versions.
       games,
       settings,
+      logs,
+      localStorage: this.getLocalPreferences(),
     };
-    Utils.downloadJSON(data, `scorekeeper-${new Date().toISOString().slice(0,10)}.json`);
-    Utils.toast('Export réussi !', 'success');
+
+    Utils.downloadJSON(data, `scorekeeper-backup-${new Date().toISOString().slice(0,10)}.json`);
+    Utils.toast(`Sauvegarde complète : ${games.length} partie(s)`, 'success', 3500);
   },
 
   async exportCurrentGame() {
@@ -2047,29 +2101,91 @@ const UI = {
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+
       try {
         const text = await file.text();
-        const data = JSON.parse(text);
+        const raw = JSON.parse(text);
 
-        if (data.game) {
-          // Import d'une seule partie
-          await DB.save('games', data.game);
+        if (raw.game) {
+          // Import d'une seule partie : conserver le comportement historique de fusion.
+          await DB.save('games', raw.game);
           Utils.toast('Partie importée !', 'success');
           await Screens.render_home();
-        } else if (data.games) {
-          // Import complet
-          for (const g of data.games) await DB.save('games', g);
-          Utils.toast(`${data.games.length} partie(s) importée(s) !`, 'success');
-          await Screens.render_home();
+          return;
         }
+
+        const payload = raw.data && typeof raw.data === 'object' ? raw.data : raw;
+        if (!Array.isArray(payload.games)) throw new Error('Aucune partie dans la sauvegarde');
+
+        const isFullBackup = raw.format === 'scorekeeper-pro-full-backup' ||
+          Array.isArray(payload.settings) || Array.isArray(payload.logs) || payload.localStorage;
+
+        if (isFullBackup) {
+          const confirmed = confirm(
+            `Restaurer cette sauvegarde complète ?\n\n` +
+            `${payload.games.length} partie(s) seront restaurée(s). ` +
+            `Les données actuellement présentes sur cet appareil seront remplacées.`
+          );
+          if (!confirmed) return;
+
+          // Remplacement complet : garantit qu'un nouvel appareil reproduit la sauvegarde
+          // sans conserver de données résiduelles d'une installation précédente.
+          await Promise.all([DB.clear('games'), DB.clear('settings'), DB.clear('logs')]);
+
+          for (const g of payload.games || []) await DB.save('games', g);
+          for (const setting of payload.settings || []) await DB.save('settings', setting);
+          for (const log of payload.logs || []) await DB.save('logs', log);
+          // Les sauvegardes v1.35+ contiennent les préférences locales.
+          // Un ancien export qui n'en contient pas ne doit pas effacer celles de l'appareil.
+          if (payload.localStorage && typeof payload.localStorage === 'object') {
+            this.restoreLocalPreferences(payload.localStorage);
+          }
+
+          State.currentGame = null;
+          Utils.toast(
+            `Restauration complète : ${payload.games.length} partie(s), paramètres et préférences`,
+            'success',
+            4500
+          );
+          Router.go('home');
+          return;
+        }
+
+        // Ancien export ne contenant que les parties : fusion non destructive.
+        for (const g of payload.games) await DB.save('games', g);
+        Utils.toast(`${payload.games.length} partie(s) importée(s)`, 'success');
+        await Screens.render_home();
       } catch (err) {
-        Utils.toast('Fichier invalide', 'error');
+        console.error('[Import]', err);
+        Utils.toast('Fichier de sauvegarde invalide', 'error');
+      } finally {
+        input.value = '';
       }
     };
     input.click();
   },
 
   refreshStats() { Screens.render_stats(); },
+
+  async resetAllStats() {
+    const password = prompt('Mot de passe requis pour réinitialiser toutes les statistiques :');
+    if (password === null) return;
+    if (password !== STATS_RESET_PASSWORD) {
+      Utils.toast('Mot de passe incorrect', 'error', 3200);
+      return;
+    }
+
+    const confirmed = confirm(
+      'Réinitialiser toutes les statistiques ?\n\n' +
+      'Les statistiques repartiront de 0 dès maintenant. Les parties archivées, historiques et sauvegardes ne seront pas supprimés.'
+    );
+    if (!confirmed) return;
+
+    const resetAt = new Date().toISOString();
+    await DB.setSetting('statsResetAt', resetAt);
+    await Screens.render_stats();
+    Utils.toast('Toutes les statistiques ont été réinitialisées', 'success', 4000);
+  },
 
   /** Garantit qu'une partie archivée possède un gagnant exploitable par les statistiques. */
   resolveWinnerBeforeArchive(game) {
@@ -2189,8 +2305,8 @@ function buildScreenHTML() {
       <div class="card">
         <div class="card-title">Données</div>
         <div class="btn-row">
-          <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Exporter tout</button>
-          <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Importer</button>
+          <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Sauvegarde complète</button>
+          <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Restaurer</button>
         </div>
       </div>
 
@@ -2409,6 +2525,12 @@ function buildScreenHTML() {
       <div class="card"><div class="card-title">Victoires par joueur</div><div class="stats-header"><span>Joueur</span><span>V/G</span><span>%</span></div><div id="stats-player-results" class="stats-list"></div></div>
       <div class="card"><div class="card-title">Victoires par équipe</div><div class="stats-header"><span>Équipe</span><span>V/G</span><span>%</span></div><div id="stats-team-results" class="stats-list"></div></div>
       <div class="card"><div class="card-title">Détail joueur par jeu</div><div class="stats-header"><span>Joueur / jeu</span><span>V/G</span><span>%</span></div><div id="stats-detail-results" class="stats-list"></div></div>
+
+      <div class="card stats-reset-card">
+        <div class="card-title">Réinitialisation</div>
+        <div class="setting-sub" style="margin-bottom:12px">Réinitialise tous les compteurs de statistiques à partir de maintenant. Les parties et leurs historiques sont conservés.</div>
+        <button class="btn btn-danger btn-sm" onclick="UI.resetAllStats()">♻ Réinitialiser toutes les stats</button>
+      </div>
       <div class="bottom-safe"></div>
     </div>
 
