@@ -1261,3 +1261,13 @@ body {
     min-height: 56px;
   }
 }
+
+/* v1.41 - actions 500 */
+.fh-end-series-zone {
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.fh-end-series-zone .btn-danger {
+  font-weight: 800;
+}

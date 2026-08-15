@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '1.40';
+const APP_VERSION = '1.41';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -442,17 +442,18 @@ const Games = {
 
   /* ─── Jeu de 500 ─── */
   fiveHundred: {
-    createTeams(team0Name, team1Name, tablePlayerNames = [], seriesBestOf = 1) {
-      const defaults = ['Joueur 1', 'Joueur 2', 'Joueur 3', 'Joueur 4'];
+    createTeams(team0Name, team1Name, tablePlayerNames = [], seriesBestOf = 3) {
+      const defaults = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
       const enteredNames = Array.from({length: 4}, (_, i) => tablePlayerNames[i] || defaults[i]);
       const shuffledNames = Utils.shuffle(enteredNames);
       // Le joueur qui commence doit toujours apparaître en premier dans l'ordre affiché.
-      // On choisit un départ au hasard, puis on fait pivoter l'ordre aléatoire autour de lui.
       const starterOffset = Utils.randomIndex(shuffledNames.length);
       const names = shuffledNames.slice(starterOffset).concat(shuffledNames.slice(0, starterOffset));
       const firstBidderIdx = 0;
-      const bestOf = [1, 3, 5, 7].includes(parseInt(seriesBestOf, 10)) ? parseInt(seriesBestOf, 10) : 1;
+      const bestOf = [1, 3, 5, 7].includes(parseInt(seriesBestOf, 10)) ? parseInt(seriesBestOf, 10) : 3;
       const winsNeeded = Math.floor(bestOf / 2) + 1;
+      const team0AutoName = `${names[0]} & ${names[2]}`;
+      const team1AutoName = `${names[1]} & ${names[3]}`;
       return {
         id: Utils.uid(),
         type: 'fiveHundred',
@@ -461,8 +462,8 @@ const Games = {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         teams: [
-          { name: team0Name, score: 0 },
-          { name: team1Name, score: 0 },
+          { name: team0AutoName, score: 0 },
+          { name: team1AutoName, score: 0 },
         ],
         // Les partenaires sont les positions 1+3 et 2+4 dans l'ordre aléatoire affiché.
         tablePlayers: names.map((name, i) => ({ name, seatIdx: i, teamIdx: i % 2 })),
@@ -537,6 +538,10 @@ const Games = {
       const count = seats.length || 1;
       if (!Number.isInteger(game.nextBidderIdx)) game.nextBidderIdx = 0;
       game.nextBidderIdx = ((game.nextBidderIdx % count) + count) % count;
+      if (game.mode === 'teams' && seats.length === 4 && Array.isArray(game.teams) && game.teams.length >= 2) {
+        game.teams[0].name = `${seats[0].name} & ${seats[2].name}`;
+        game.teams[1].name = `${seats[1].name} & ${seats[3].name}`;
+      }
       return seats;
     },
 
@@ -742,6 +747,32 @@ const Games = {
         gameCompletion,
         nextBidder,
       };
+    },
+
+    /** Partie nulle en équipes : bonus aux deux équipes sauf si ce bonus ferait gagner l'une d'elles. */
+    applyNullDeal(game, configuredPoints = 50) {
+      this.ensureSeries(game);
+      const points = Math.max(0, parseInt(configuredPoints, 10) || 0);
+      const blockedTeams = game.teams.filter(t => (Number(t.score) || 0) + points >= 1000);
+      const appliedPoints = blockedTeams.length ? 0 : points;
+      const before = game.teams.map(t => Number(t.score) || 0);
+      if (appliedPoints > 0) {
+        game.teams.forEach(t => { t.score = Math.max(0, (Number(t.score) || 0) + appliedPoints); });
+      }
+      const nextBidder = this.advanceNextBidder(game);
+      game.history.push({
+        kind: 'nullDeal',
+        timestamp: new Date().toISOString(),
+        configuredPoints: points,
+        appliedPoints,
+        blockedBy: blockedTeams.map(t => t.name),
+        before,
+        after: game.teams.map(t => t.score),
+        seriesGameNumber: game.series?.gameNumber || 1,
+        nextBidder: nextBidder.name,
+      });
+      game.updatedAt = new Date().toISOString();
+      return { configuredPoints: points, appliedPoints, blockedTeams, nextBidder };
     },
 
     /**
@@ -1072,15 +1103,8 @@ const Screens = {
         </div>
 
         <div class="card" id="fh-new-teams">
-          <div class="card-title">Noms des équipes</div>
-          <div class="form-group">
-            <label class="form-label">Équipe 1</label>
-            <input class="form-input" id="team0-name" type="text" value="Eux" maxlength="20" oninput="UI.updateNewFhTeamLabels()">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Équipe 2</label>
-            <input class="form-input" id="team1-name" type="text" value="Nous" maxlength="20" oninput="UI.updateNewFhTeamLabels()">
-          </div>
+          <div class="card-title">500 en équipes</div>
+          <div class="setting-sub" style="margin-bottom:12px">Les noms d'équipes sont générés automatiquement à partir des deux partenaires après le tirage de l'ordre, par exemple « Yannick & Julie ».</div>
 
           <div class="form-group">
             <label class="form-label">Format de la série</label>
@@ -1103,7 +1127,7 @@ const Screens = {
               </div>
             `).join('')}
           </div>
-          <div class="setting-sub" style="margin-top:12px"><strong id="fh-new-team-summary-0">Équipes déterminées après le tirage de l'ordre.</strong><br><strong id="fh-new-team-summary-1">Les positions 1+3 affronteront les positions 2+4.</strong></div>
+          <div class="setting-sub" style="margin-top:12px"><strong>Équipes déterminées automatiquement après le tirage.</strong><br>Les positions 1+3 affronteront les positions 2+4.</div>
           <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Si le miseur chute, la valeur du contrat va à l'équipe adverse. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
         </div>
 
@@ -1123,7 +1147,6 @@ const Screens = {
       `;
       UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
       UI.renderNewFhPlayerInputs();
-      UI.updateNewFhTeamLabels();
     } else {
       const defaultCount = type === 'magic' ? 4 : type === 'hearts' ? 4 : 2;
       const minCount     = type === 'magic' ? 2 : 2;
@@ -1292,6 +1315,8 @@ const Screens = {
     if (nextBanner) {
       nextBanner.innerHTML = `<span>Première mise de la prochaine donne</span><strong>${Utils.esc(next.name)}</strong>`;
     }
+    const nullDealBtn = document.getElementById('fh-null-deal-btn');
+    if (nullDealBtn) nullDealBtn.style.display = game.mode === 'teams' ? 'flex' : 'none';
     const compact = document.getElementById('fh-series-inline');
     if (compact) {
       if (game.mode === 'teams') {
@@ -1340,7 +1365,7 @@ const Screens = {
   },
 
   /* ─── Paramètres ─── */
-  render_settings() {
+  async render_settings() {
     UI._passwordSettingsUnlocked = false;
     const editor = document.getElementById('password-settings-editor');
     const unlock = document.getElementById('password-settings-unlock');
@@ -1350,6 +1375,8 @@ const Screens = {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
+    const nullPointsEl = document.getElementById('fh-null-points-setting');
+    if (nullPointsEl) nullPointsEl.value = await DB.getSetting('fiveHundredNullPoints', 50);
   },
 
   /* ─── Statistiques globales ─── */
@@ -1496,6 +1523,21 @@ const Screens = {
               <div class="history-detail">${e.success ? '✅ Contrat réussi' : '❌ Contrat chuté'}${perTrick}</div>
               ${scoreLines}
               ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}${e.nextBidderSeat ? ` · ${Utils.esc(e.nextBidderSeat)}` : ''}</div>` : ''}
+            </div>
+          `;
+        }
+        if (e.kind === 'nullDeal') {
+          const blockText = e.appliedPoints > 0
+            ? `+${e.appliedPoints} points aux deux équipes`
+            : `0 point ajouté${e.blockedBy?.length ? ` (seuil 1000 : ${Utils.esc(e.blockedBy.join(' / '))})` : ''}`;
+          return `
+            <div class="history-entry">
+              <div class="history-header">
+                <span class="history-player">Partie nulle</span>
+                <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
+              </div>
+              <div class="history-detail">${blockText}</div>
+              ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}</div>` : ''}
             </div>
           `;
         }
@@ -1684,6 +1726,14 @@ const UI = {
     this.updateFhSubmitBtn();
   },
 
+  async saveFhNullPointsSetting() {
+    const input = document.getElementById('fh-null-points-setting');
+    const value = Math.max(0, parseInt(input?.value || '50', 10) || 0);
+    await DB.setSetting('fiveHundredNullPoints', value);
+    if (input) input.value = value;
+    Utils.toast(`Partie nulle : ${value} points configurés`, 'success', 3000);
+  },
+
   openSettings() {
     Router.go('settings');
   },
@@ -1870,12 +1920,10 @@ const UI = {
           localStorage.setItem('savedPlayerNames', JSON.stringify(names));
           game = Games.fiveHundred.createIndividual(names);
         } else {
-          const t0 = document.getElementById('team0-name').value.trim() || 'Eux';
-          const t1 = document.getElementById('team1-name').value.trim() || 'Nous';
           const teamPlayerInputs = document.querySelectorAll('#fh-team-player-inputs input');
           const tablePlayerNames = Array.from(teamPlayerInputs).map((inp, i) => inp.value.trim() || `Joueur ${i + 1}`);
-          const seriesBestOf = parseInt(document.getElementById('fh-series-bestof')?.value || '1', 10);
-          game = Games.fiveHundred.createTeams(t0, t1, tablePlayerNames, seriesBestOf);
+          const seriesBestOf = parseInt(document.getElementById('fh-series-bestof')?.value || '3', 10);
+          game = Games.fiveHundred.createTeams(null, null, tablePlayerNames, seriesBestOf);
         }
 
       } else {
@@ -2240,6 +2288,24 @@ const UI = {
 
     Screens.render_five_hundred();
     if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
+  },
+
+  async fhNullDeal() {
+    this.unlockFhSound();
+    const game = State.currentGame;
+    if (!game || game.mode !== 'teams' || game.status === 'finished') return;
+    const configuredPoints = await DB.getSetting('fiveHundredNullPoints', 50);
+    const result = Games.fiveHundred.applyNullDeal(game, configuredPoints);
+    await DB.save('games', game);
+
+    if (result.appliedPoints > 0) {
+      Utils.toast(`Partie nulle : +${result.appliedPoints} aux deux équipes · Prochaine mise : ${result.nextBidder.name}`, 'info', 4500);
+    } else {
+      const blocked = result.blockedTeams.map(t => t.name).join(' / ');
+      Utils.toast(`Partie nulle : aucun point ajouté, car ${blocked} atteindrait 1000. Prochaine mise : ${result.nextBidder.name}`, 'info', 5200);
+    }
+    Screens.render_five_hundred();
+    setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
   async fhApplyTeamAward() {
@@ -2776,10 +2842,13 @@ function buildScreenHTML() {
 
       <div class="fh-action-row">
         <button class="btn btn-primary" onclick="UI.openFhResultModal()">✓ Partie terminée</button>
+        <button class="btn btn-secondary" id="fh-null-deal-btn" onclick="UI.fhNullDeal()">∅ Partie nulle</button>
         <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">± Ajustement manuel</button>
       </div>
 
-      <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
+      <div class="fh-end-series-zone">
+        <button class="btn btn-danger btn-sm" onclick="UI.endGame()">■ Terminer la série</button>
+      </div>
       <div class="fh-starter-callout" id="fh-starter-callout" aria-live="polite">
         <span>À TOI DE COMMENCER</span>
         <strong id="fh-starter-callout-name">—</strong>
@@ -2861,8 +2930,18 @@ function buildScreenHTML() {
       </div>
 
       <div class="card">
+        <div class="card-title">500 en équipes</div>
+        <div class="form-group">
+          <label class="form-label">Points pour une partie nulle</label>
+          <input class="form-input" id="fh-null-points-setting" type="number" min="0" step="10" value="50">
+          <div class="setting-sub">Ajoutés aux deux équipes lorsqu’il y a jeu blanc ou aucune mise. Si ce bonus ferait atteindre 1000 points à une équipe, aucun point n’est attribué aux deux équipes.</div>
+        </div>
+        <button class="btn btn-success btn-sm" onclick="UI.saveFhNullPointsSetting()">✓ Enregistrer</button>
+      </div>
+
+      <div class="card">
         <div class="card-title">Valeurs par défaut</div>
-        <div class="setting-sub">À l’installation ou après une réinitialisation complète, les quatre protections sont initialisées avec le mot de passe maître par défaut.</div>
+        <div class="setting-sub">À l’installation ou après une réinitialisation complète, les quatre protections sont initialisées avec le mot de passe maître par défaut. Le bonus de partie nulle revient à 50 points.</div>
       </div>
       <div class="bottom-safe"></div>
     </div>
