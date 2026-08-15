@@ -6,8 +6,15 @@
 
 'use strict';
 
-const APP_VERSION = '1.38';
-const STATS_RESET_PASSWORD = 'yco302302';
+const APP_VERSION = '1.39';
+const DEFAULT_MASTER_PASSWORD = 'yco302302';
+
+const PASSWORD_SETTING_KEYS = {
+  master: 'password.master',
+  manualAdjust: 'password.manualAdjust',
+  statsReset: 'password.statsReset',
+  dataReset: 'password.dataReset',
+};
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -151,6 +158,44 @@ const DB = {
   async setSetting(key, value) {
     return DB.save('settings', { key, value });
   }
+};
+
+/* ================================================================
+   SÉCURITÉ / MOTS DE PASSE
+   ================================================================ */
+
+const Security = {
+  /** Crée physiquement les mots de passe par défaut dans les paramètres. */
+  async ensureDefaults() {
+    for (const key of Object.values(PASSWORD_SETTING_KEYS)) {
+      const existing = await DB.get('settings', key);
+      if (!existing) await DB.setSetting(key, DEFAULT_MASTER_PASSWORD);
+    }
+  },
+
+  async get(kind) {
+    const key = PASSWORD_SETTING_KEYS[kind];
+    if (!key) throw new Error(`Type de mot de passe inconnu: ${kind}`);
+    return DB.getSetting(key, DEFAULT_MASTER_PASSWORD);
+  },
+
+  async set(kind, value) {
+    const key = PASSWORD_SETTING_KEYS[kind];
+    if (!key) throw new Error(`Type de mot de passe inconnu: ${kind}`);
+    return DB.setSetting(key, value);
+  },
+
+  /** Demande et valide un mot de passe enregistré. */
+  async require(kind, message) {
+    const entered = prompt(message);
+    if (entered === null) return false;
+    const expected = await this.get(kind);
+    if (entered !== expected) {
+      Utils.toast('Mot de passe incorrect', 'error', 3200);
+      return false;
+    }
+    return true;
+  },
 };
 
 /* ================================================================
@@ -1248,6 +1293,19 @@ const Screens = {
     }
   },
 
+  /* ─── Paramètres ─── */
+  render_settings() {
+    UI._passwordSettingsUnlocked = false;
+    const editor = document.getElementById('password-settings-editor');
+    const unlock = document.getElementById('password-settings-unlock');
+    if (editor) editor.style.display = 'none';
+    if (unlock) unlock.style.display = 'flex';
+    ['pwd-master','pwd-manual','pwd-stats','pwd-data'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  },
+
   /* ─── Statistiques globales ─── */
   async render_stats() {
     const games = await DB.getAll('games');
@@ -1450,6 +1508,56 @@ const UI = {
   _fhAudioContext: null,
   _fhSoundReady: false,
   _fhStarterTimer: null,
+  _passwordSettingsUnlocked: false,
+
+  openSettings() {
+    Router.go('settings');
+  },
+
+  async unlockPasswordSettings() {
+    const ok = await Security.require('master', 'Mot de passe maître requis pour modifier les mots de passe :');
+    if (!ok) return;
+
+    UI._passwordSettingsUnlocked = true;
+    const values = await Promise.all([
+      Security.get('master'),
+      Security.get('manualAdjust'),
+      Security.get('statsReset'),
+      Security.get('dataReset'),
+    ]);
+    const ids = ['pwd-master','pwd-manual','pwd-stats','pwd-data'];
+    ids.forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (el) el.value = values[i];
+    });
+    const editor = document.getElementById('password-settings-editor');
+    const unlock = document.getElementById('password-settings-unlock');
+    if (editor) editor.style.display = 'block';
+    if (unlock) unlock.style.display = 'none';
+  },
+
+  async savePasswordSettings() {
+    if (!UI._passwordSettingsUnlocked) {
+      Utils.toast('Déverrouillez d’abord les paramètres avec le mot de passe maître', 'error');
+      return;
+    }
+
+    const values = {
+      master: document.getElementById('pwd-master')?.value ?? '',
+      manualAdjust: document.getElementById('pwd-manual')?.value ?? '',
+      statsReset: document.getElementById('pwd-stats')?.value ?? '',
+      dataReset: document.getElementById('pwd-data')?.value ?? '',
+    };
+    if (Object.values(values).some(v => !v.length)) {
+      Utils.toast('Aucun mot de passe ne peut être vide', 'error');
+      return;
+    }
+
+    await Promise.all(Object.entries(values).map(([kind, value]) => Security.set(kind, value)));
+    UI._passwordSettingsUnlocked = false;
+    Screens.render_settings();
+    Utils.toast('Mots de passe enregistrés', 'success', 3500);
+  },
 
   /** Active le contexte audio à partir d'un geste utilisateur. */
   unlockFhSound() {
@@ -2021,6 +2129,8 @@ const UI = {
       Utils.toast('Entrez un nombre de points', 'error');
       return;
     }
+    const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour l’ajustement manuel / pénalité :');
+    if (!authorized) return;
     const result = Games.fiveHundred.adjustScore(game, idx, raw * sign);
     await DB.save('games', game);
     Utils.toast(`Ajustement ${Utils.signed(result.delta)} pts`, result.delta < 0 ? 'error' : 'success');
@@ -2152,6 +2262,9 @@ const UI = {
           for (const g of payload.games || []) await DB.save('games', g);
           for (const setting of payload.settings || []) await DB.save('settings', setting);
           for (const log of payload.logs || []) await DB.save('logs', log);
+          // Les anciennes sauvegardes ne contiennent pas nécessairement les mots de passe.
+          // Dans ce cas, recréer les valeurs par défaut dans les paramètres.
+          await Security.ensureDefaults();
           // Les sauvegardes v1.35+ contiennent les préférences locales.
           // Un ancien export qui n'en contient pas ne doit pas effacer celles de l'appareil.
           if (payload.localStorage && typeof payload.localStorage === 'object') {
@@ -2185,12 +2298,8 @@ const UI = {
   refreshStats() { Screens.render_stats(); },
 
   async resetAllStats() {
-    const password = prompt('Mot de passe requis pour réinitialiser toutes les statistiques :');
-    if (password === null) return;
-    if (password !== STATS_RESET_PASSWORD) {
-      Utils.toast('Mot de passe incorrect', 'error', 3200);
-      return;
-    }
+    const authorized = await Security.require('statsReset', 'Mot de passe requis pour réinitialiser toutes les statistiques :');
+    if (!authorized) return;
 
     const confirmed = confirm(
       'Réinitialiser toutes les statistiques ?\n\n' +
@@ -2205,12 +2314,8 @@ const UI = {
   },
 
   async resetAllData() {
-    const password = prompt('Mot de passe requis pour réinitialiser toutes les données :');
-    if (password === null) return;
-    if (password !== STATS_RESET_PASSWORD) {
-      Utils.toast('Mot de passe incorrect', 'error', 3200);
-      return;
-    }
+    const authorized = await Security.require('dataReset', 'Mot de passe requis pour réinitialiser toutes les données :');
+    if (!authorized) return;
 
     const confirmed = confirm(
       'RÉINITIALISER TOUTES LES DONNÉES ?\n\n' +
@@ -2228,6 +2333,7 @@ const UI = {
     // Les préférences personnalisées sont supprimées afin que les valeurs
     // codées par défaut dans l'application redeviennent effectives.
     localStorage.clear();
+    await Security.ensureDefaults();
     State.currentGame = null;
 
     Utils.toast('Toutes les données ont été réinitialisées', 'success', 4200);
@@ -2347,7 +2453,10 @@ function buildScreenHTML() {
         </div>
       </div>
 
-      <button class="btn btn-secondary" onclick="Router.go('stats')">📊 Statistiques</button>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="Router.go('stats')">📊 Statistiques</button>
+        <button class="btn btn-secondary" onclick="UI.openSettings()">⚙ Paramètres</button>
+      </div>
 
       <div class="card">
         <div class="card-title">Données</div>
@@ -2520,7 +2629,7 @@ function buildScreenHTML() {
           <button class="btn btn-success btn-icon" onclick="UI.fhManualAdjust(1)" title="Ajouter">+</button>
           <button class="btn btn-danger btn-icon" onclick="UI.fhManualAdjust(-1)" title="Retirer">−</button>
         </div>
-        <div class="setting-sub" style="margin-top:8px">Au 500, un retrait ne peut jamais faire descendre le score sous 0.</div>
+        <div class="setting-sub" style="margin-top:8px">Au 500, un retrait ne peut jamais faire descendre le score sous 0. Un mot de passe est exigé pour chaque ajustement.</div>
       </div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
@@ -2549,6 +2658,52 @@ function buildScreenHTML() {
       <div id="generic-players" class="generic-score-players"></div>
 
       <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
+      <div class="bottom-safe"></div>
+    </div>
+
+    <!-- ══ PARAMÈTRES ══ -->
+    <div class="screen" id="screen-settings">
+      <div class="app-header">
+        <button class="btn-back" onclick="Router.go('home')">‹</button>
+        <div class="header-title">⚙ Paramètres</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Mots de passe</div>
+        <div class="setting-sub" style="margin-bottom:14px">
+          Les mots de passe sont conservés dans les paramètres de l’application et inclus dans la sauvegarde JSON complète. Sur une installation neuve, ils valent tous le mot de passe maître par défaut.
+        </div>
+
+        <div id="password-settings-unlock" style="display:flex">
+          <button class="btn btn-primary" onclick="UI.unlockPasswordSettings()">🔐 Modifier les mots de passe</button>
+        </div>
+
+        <div id="password-settings-editor" style="display:none">
+          <div class="form-group">
+            <label class="form-label">Mot de passe maître</label>
+            <input class="form-input" id="pwd-master" type="password" autocomplete="new-password">
+            <div class="setting-sub">Exigé avant toute modification des mots de passe.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ajustement manuel / pénalité</label>
+            <input class="form-input" id="pwd-manual" type="password" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Réinitialisation des statistiques</label>
+            <input class="form-input" id="pwd-stats" type="password" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Réinitialisation de toutes les données</label>
+            <input class="form-input" id="pwd-data" type="password" autocomplete="new-password">
+          </div>
+          <button class="btn btn-success" onclick="UI.savePasswordSettings()">✓ Enregistrer les mots de passe</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Valeurs par défaut</div>
+        <div class="setting-sub">À l’installation ou après une réinitialisation complète, les quatre protections sont initialisées avec le mot de passe maître par défaut.</div>
+      </div>
       <div class="bottom-safe"></div>
     </div>
 
@@ -2614,6 +2769,7 @@ async function init() {
 
   // Initialiser IndexedDB
   await DB.init();
+  await Security.ensureDefaults();
 
   // Enregistrer le service worker et forcer la vérification des mises à jour.
   // updateViaCache:'none' évite qu'Android/Chrome réutilise une ancienne copie du SW.
