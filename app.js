@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.3';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {

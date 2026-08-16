@@ -1205,7 +1205,7 @@ body {
   gap: 10px;
 }
 .fh-next-bidder span { color: var(--text-secondary); font-size: 11px; }
-.fh-next-bidder strong { color: var(--accent-2); font-size: 13px; text-align: right; }
+.fh-next-bidder strong { color: var(--accent-2); font-size: 26px; line-height: 1.05; text-align: right; font-weight: 900; }
 
 @media (max-width: 380px) {
   .fh-seat { width: 104px; }
@@ -1228,7 +1228,7 @@ body {
 .fh-order-row.fh-starter-active::after { content:'COMMENCE'; position:absolute; right:10px; top:-9px; padding:2px 7px; border-radius:999px; background:var(--accent-2); color:#001b18; font-size:9px; font-weight:900; letter-spacing:.7px; }
 @keyframes fhStarterRowPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.045)} }
 .fh-next-bidder.fh-starter-flash { border-color:var(--accent-2); box-shadow:0 0 24px rgba(3,218,198,.42); animation:fhStarterBanner 1.1s ease-in-out 2; }
-.fh-next-bidder.fh-starter-flash strong { color:#fff; font-size:18px; }
+.fh-next-bidder.fh-starter-flash strong { color:#fff; font-size:30px; }
 @keyframes fhStarterBanner { 0%,100%{transform:scale(1);background:rgba(3,218,198,.08)} 50%{transform:scale(1.025);background:rgba(3,218,198,.25)} }
 .fh-starter-callout { position:fixed; left:50%; top:26%; transform:translate(-50%,-50%) scale(.72); z-index:180; min-width:min(88vw,360px); padding:18px 22px; border:2px solid var(--accent-2); border-radius:var(--radius-lg); background:rgba(18,18,18,.96); box-shadow:0 10px 55px rgba(0,0,0,.75),0 0 34px rgba(3,218,198,.4); text-align:center; pointer-events:none; opacity:0; visibility:hidden; }
 .fh-starter-callout span { display:block; color:var(--accent-2); font-size:11px; font-weight:900; letter-spacing:1.3px; margin-bottom:4px; }
