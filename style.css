@@ -1631,40 +1631,6 @@ body {
 .fh-special-contracts .fh-mulot-contract small {
   color: var(--text-secondary);
 }
-.fh-open-bid-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  cursor: pointer;
-}
-.fh-open-bid-option input {
-  width: 20px;
-  height: 20px;
-  margin-top: 2px;
-  accent-color: var(--accent);
-  flex: 0 0 auto;
-}
-.fh-open-bid-option span {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-.fh-open-bid-option small {
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.35;
-}
-.fh-open-bid-option.disabled {
-  opacity: .45;
-  cursor: default;
-}
 .fh-team-result-hint {
   margin-top: 10px;
   min-height: 18px;

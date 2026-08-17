@@ -810,7 +810,7 @@ const Games = {
      * Mulot chuté : 250 points aux adversaires.
      * Une partie est gagnée dès qu'une équipe atteint 1000 points.
      */
-    applyContract(game, teamIdx, contractKey, success, extra = {}) {
+    applyContract(game, teamIdx, contractKey, success) {
       this.ensureSeries(game);
       const pts = this.contractPoints(game, contractKey);
       const awardedPoints = success ? pts : this.failedTeamContractPoints(game, contractKey);
@@ -832,7 +832,6 @@ const Games = {
         points: pts,
         awardedPoints,
         success,
-        openBid: !!extra.openBid,
         lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-250' : (this.isGameContract(contractKey) ? 'partie-half' : 'full')),
         oldValue: oldAwarded,
         delta: awardedPoints,
@@ -1957,10 +1956,6 @@ const UI = {
       : `
         <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat, puis l'équipe qui a remporté les enchères. Le pointage appliquera automatiquement la pénalité réduite d'une Partie chutée ou d'un Mulot chuté.</div>
         ${this.fhContractTableHtml(true)}
-        <label class="fh-open-bid-option" id="fh-open-bid-option">
-          <input type="checkbox" id="fh-modal-open-bid">
-          <span><strong>Enchère ouverte</strong><small>Atout choisi après le minou. Même pointage que l'atout final, sans réduction.</small></span>
-        </label>
         <div class="card-title" style="margin-top:14px">Équipe qui a misé</div>
         <div class="team-select-row" id="fh-modal-bidder-buttons"></div>
         <div class="result-btns" style="margin-top:14px">
@@ -2368,14 +2363,6 @@ const UI = {
     document.querySelectorAll('.contract-btn').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.key === key);
     });
-    const openBid = document.getElementById('fh-modal-open-bid');
-    const openBidWrap = document.getElementById('fh-open-bid-option');
-    const isMulot = Games.fiveHundred.isMulotContract(key);
-    if (openBid) {
-      openBid.disabled = isMulot;
-      if (isMulot) openBid.checked = false;
-    }
-    if (openBidWrap) openBidWrap.classList.toggle('disabled', isMulot);
     this.updateFhSubmitBtn();
   },
 
@@ -2534,8 +2521,7 @@ const UI = {
     if (game.mode === 'individual') return;
     const contract = UI._selectedContract;
     const biddingTeamName = game.teams[UI._selectedTeam].name;
-    const openBid = !!document.getElementById('fh-modal-open-bid')?.checked;
-    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, contract, success, { openBid });
+    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, contract, success);
     await DB.save('games', game);
 
     const next = result.nextBidder;
@@ -2545,7 +2531,7 @@ const UI = {
       isSeriesFinished
         ? `🏆 Série terminée : ${result.gameCompletion.seriesWinner.name} gagne ${game.series.wins[0]}-${game.series.wins[1]}`
         : success
-          ? `✅ ${biddingTeamName} +${result.awardedPoints} pts${openBid ? ' · enchère ouverte' : ''} · Prochaine mise : ${next.name}`
+          ? `✅ ${biddingTeamName} +${result.awardedPoints} pts · Prochaine mise : ${next.name}`
           : `❌ ${Games.fiveHundred.isMulotContract(contract) ? 'Mulot' : (Games.fiveHundred.isGameContract(contract) ? 'Partie' : 'Contrat')} chuté : +${result.awardedPoints} pts à ${awarded} · Prochaine mise : ${next.name}`,
       isSeriesFinished ? 'success' : (success ? 'success' : 'info'),
       5000
