@@ -1611,3 +1611,74 @@ body {
     grid-column: 1 / -1;
   }
 }
+
+/* v2.4 - Mulot, Partie à pénalité réduite et enchère ouverte */
+.fh-special-contracts {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.fh-special-contracts .fh-mulot-contract {
+  width: 100%;
+  min-height: 62px;
+  border-color: rgba(255, 192, 97, .45);
+  background: linear-gradient(135deg, rgba(255, 192, 97, .10), var(--bg-elevated));
+}
+.fh-special-contracts .fh-mulot-contract .bid-text {
+  color: var(--warning);
+  letter-spacing: .7px;
+}
+.fh-special-contracts .fh-mulot-contract small {
+  color: var(--text-secondary);
+}
+.fh-open-bid-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.fh-open-bid-option input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+.fh-open-bid-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.fh-open-bid-option small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.fh-open-bid-option.disabled {
+  opacity: .45;
+  cursor: default;
+}
+.fh-team-result-hint {
+  margin-top: 10px;
+  min-height: 18px;
+  color: var(--text-secondary);
+}
+.fh-team-result-hint strong {
+  color: var(--accent-2);
+}
+.fh-v24-rules {
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(167,139,250,.08), rgba(45,212,199,.05));
+}
+.fh-v24-rules .setting-sub strong {
+  color: var(--text-primary);
+}

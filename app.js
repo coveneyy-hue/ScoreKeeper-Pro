@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -438,6 +438,14 @@ const FIVE_HUNDRED_TEAM_SCORES = {
   '10♠': 1040, '10♣': 1060, '10♦': 1080, '10♥': 1100, '10NT': 1120,
 };
 
+// Contrat spécial v2.4. Le Mulot est réservé au mode équipes :
+// 0 levée, sans minou ni atout. Réussite = 500 points; échec = 250 points aux adversaires.
+const FIVE_HUNDRED_MULOT = {
+  key: 'MULOT',
+  points: 500,
+  failedOpponentPoints: 250,
+};
+
 // Barèmes individuels selon le nombre de joueurs.
 // À 2 joueurs, le barème est identique au 500 en équipes.
 // À 3 joueurs, la valeur est intermédiaire. À 4 joueurs, le miseur est davantage récompensé.
@@ -700,7 +708,20 @@ const Games = {
         const table = FIVE_HUNDRED_INDIVIDUAL_SCORES_BY_PLAYERS[playerCount];
         return table?.[contractKey] || 0;
       }
+      if (contractKey === FIVE_HUNDRED_MULOT.key) return FIVE_HUNDRED_MULOT.points;
       return FIVE_HUNDRED_TEAM_SCORES[contractKey] || 0;
+    },
+
+    isMulotContract(contractKey) {
+      return contractKey === FIVE_HUNDRED_MULOT.key;
+    },
+
+    /** Points accordés aux adversaires lorsque le contrat est chuté en équipes. */
+    failedTeamContractPoints(game, contractKey) {
+      if (this.isMulotContract(contractKey)) return FIVE_HUNDRED_MULOT.failedOpponentPoints;
+      const pts = this.contractPoints(game, contractKey);
+      if (this.isGameContract(contractKey)) return Math.floor(pts / 2);
+      return pts;
     },
 
     opponentPoolRatio(game) {
@@ -716,7 +737,7 @@ const Games = {
     },
 
     isGameContract(contractKey) {
-      return parseInt(contractKey, 10) === 10;
+      return !this.isMulotContract(contractKey) && parseInt(contractKey, 10) === 10;
     },
 
     teamMembers(game, teamIdx) {
@@ -784,18 +805,21 @@ const Games = {
     },
 
     /** Applique un résultat de contrat en mode équipes.
-     * Aucun score négatif : si le miseur chute, la valeur du contrat est remise à l'équipe adverse.
+     * Contrat normal chuté : valeur complète aux adversaires.
+     * Partie chutée : 50 % de la valeur aux adversaires.
+     * Mulot chuté : 250 points aux adversaires.
      * Une partie est gagnée dès qu'une équipe atteint 1000 points.
      */
-    applyContract(game, teamIdx, contractKey, success) {
+    applyContract(game, teamIdx, contractKey, success, extra = {}) {
       this.ensureSeries(game);
       const pts = this.contractPoints(game, contractKey);
+      const awardedPoints = success ? pts : this.failedTeamContractPoints(game, contractKey);
       const opponentIdx = teamIdx === 0 ? 1 : 0;
       const awardedIdx = success ? teamIdx : opponentIdx;
       const awardedTeam = game.teams[awardedIdx];
       const biddingTeam = game.teams[teamIdx];
       const oldAwarded = awardedTeam.score;
-      awardedTeam.score = Math.max(0, oldAwarded + pts);
+      awardedTeam.score = Math.max(0, oldAwarded + awardedPoints);
 
       game.history.push({
         kind: 'contract',
@@ -806,9 +830,12 @@ const Games = {
         awardedTeamIdx: awardedIdx,
         contract: contractKey,
         points: pts,
+        awardedPoints,
         success,
+        openBid: !!extra.openBid,
+        lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-250' : (this.isGameContract(contractKey) ? 'partie-half' : 'full')),
         oldValue: oldAwarded,
-        delta: pts,
+        delta: awardedPoints,
         newValue: awardedTeam.score,
         seriesGameNumber: game.series.gameNumber,
       });
@@ -828,7 +855,9 @@ const Games = {
         lastHistory.nextBidder = nextBidder.name;
       }
       return {
-        delta: pts,
+        delta: awardedPoints,
+        contractPoints: pts,
+        awardedPoints,
         awardedTeam,
         awardedTeamIdx: awardedIdx,
         newValue: awardedTeam.score,
@@ -838,7 +867,7 @@ const Games = {
       };
     },
 
-    /** Attribution directe des points en mode équipes, utilisée par le modal compact. */
+    /** Attribution directe des points en mode équipes, conservée pour compatibilité. */
     applyAwardedContract(game, awardedIdx, contractKey) {
       this.ensureSeries(game);
       const pts = this.contractPoints(game, contractKey);
@@ -1276,7 +1305,7 @@ const Screens = {
             `).join('')}
           </div>
           <div class="setting-sub" style="margin-top:12px"><strong>Équipes déterminées automatiquement après le tirage.</strong><br>Les positions 1+3 affronteront les positions 2+4.</div>
-          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Si le miseur chute, la valeur du contrat va à l'équipe adverse. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
+          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne seulement 50 % de sa valeur aux adversaires. Un Mulot vaut 500 points s'il réussit et 250 points aux adversaires s'il échoue. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
         </div>
 
         <div class="card" id="fh-new-individual" style="display:none">
@@ -1716,13 +1745,17 @@ const Screens = {
             </div>
           `;
         }
+        const contractLabel = e.contract === FIVE_HUNDRED_MULOT.key ? 'Mulot' : e.contract;
+        const awardedPoints = e.awardedPoints ?? e.delta ?? e.points ?? 0;
+        const ruleText = e.lossRule === 'partie-half' ? ' · pénalité 50 %' : (e.lossRule === 'mulot-250' ? ' · pénalité Mulot 250' : '');
+        const openText = e.openBid ? ' · enchère ouverte' : '';
         return `
           <div class="history-entry">
             <div class="history-header">
-              <span class="history-player">${Utils.esc(e.team)} · ${e.contract}</span>
+              <span class="history-player">${Utils.esc(e.team)} · ${contractLabel}${openText}</span>
               <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
             </div>
-            <div class="history-detail">${e.directAward ? '✅ Points accordés' : (e.success ? '✅ Contrat réussi' : '❌ Contrat chuté')} · ${e.points || e.delta} pts à ${Utils.esc(e.awardedTeam || e.team)}</div>
+            <div class="history-detail">${e.directAward ? '✅ Points accordés' : (e.success ? '✅ Contrat réussi' : '❌ Contrat chuté')} · ${awardedPoints} pts à ${Utils.esc(e.awardedTeam || e.team)}${ruleText}</div>
             <div class="history-detail">${Utils.esc(e.awardedTeam || e.team)} : ${e.oldValue} +${e.delta} → ${e.newValue}</div>
             ${e.seriesGameNumber ? `<div class="history-detail">Partie ${e.seriesGameNumber} de la série</div>` : ''}
             ${e.nextBidder ? `<div class="history-detail">Prochaine mise : ${Utils.esc(e.nextBidder)}</div>` : ''}
@@ -1818,6 +1851,11 @@ const UI = {
     const game = State.currentGame;
     const bids = ['7','8','9','10'];
     const suitClass = (suit) => suit === '♥' ? 'suit-heart' : suit === '♦' ? 'suit-diamond' : suit === 'NT' ? 'suit-nt' : 'suit-black';
+    const mulotHtml = game?.mode === 'teams'
+      ? (interactive
+        ? `<button class="contract-btn fh-mulot-contract ${UI._selectedContract === FIVE_HUNDRED_MULOT.key ? 'selected' : ''}" onclick="UI.selectContract('${FIVE_HUNDRED_MULOT.key}')" data-key="${FIVE_HUNDRED_MULOT.key}"><span class="contract-inline-label"><span class="bid-text">MULOT</span></span><small>500 / échec 250</small></button>`
+        : `<div class="fh-contract-value-cell fh-mulot-contract"><span class="contract-inline-label"><span class="bid-text">MULOT</span></span><strong>500</strong><small>échec : 250</small></div>`)
+      : '';
     return `
       <div class="fh-contract-table ${interactive ? 'interactive' : 'readonly'}">
         <div class="fh-contract-head"><div>♠</div><div>♣</div><div>♦</div><div>♥</div><div>S</div></div>
@@ -1834,6 +1872,7 @@ const UI = {
             return `<div class="fh-contract-value-cell">${labelHtml}<strong>${pts}</strong></div>`;
           }).join('')).join('')}
         </div>
+        ${mulotHtml ? `<div class="fh-special-contracts">${mulotHtml}</div>` : ''}
       </div>`;
   },
 
@@ -1865,6 +1904,14 @@ const UI = {
         <div class="card-title">Valeur des contrats</div>
         ${this.fhContractTableHtml(false)}
       </div>
+      ${game.mode === 'teams' ? `
+      <div class="fh-info-group fh-v24-rules">
+        <div class="card-title">Règles 500 adaptées v2.4</div>
+        <div class="setting-sub"><strong>Enchère ouverte :</strong> 7, 8, 9 ou Partie peuvent être annoncés sans nommer l'atout. Une annonce avec couleur du même niveau est supérieure, par exemple 8 &lt; 8♠ &lt; 8♣ &lt; 8♦ &lt; 8♥ &lt; 8S. Après le minou, le gagnant d'une enchère ouverte choisit l'atout. Il reçoit exactement les points normaux de l'atout choisi, sans réduction.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. L'ordre place le Mulot après 9S et avant la Partie.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Partie chutée :</strong> les adversaires reçoivent 50 % de la valeur du contrat final. Exemples : Partie ♠ = 520, Partie ♥ = 550, Partie S = 560.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Mulot :</strong> le miseur joue seul et doit faire 0 levée sur 10. Son partenaire ne joue pas. Le minou de 6 cartes reste face cachée et n'est pas consulté. Il n'y a pas d'atout. Les deux jokers deviennent les deux cartes les plus faibles et ne permettent pas d'éviter l'obligation de fournir la couleur. Réussite : +500. Échec dès la première levée remportée : +250 aux adversaires.</div>
+      </div>` : ''}
     `;
     this.openAppModal('Informations du 500', html);
   },
@@ -1908,11 +1955,19 @@ const UI = {
         <div id="fh-modal-opponent-tricks-panel" style="display:none"></div>
       `
       : `
-        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat puis l’équipe qui reçoit les points pour cette donne.</div>
+        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat, puis l'équipe qui a remporté les enchères. Le pointage appliquera automatiquement la pénalité réduite d'une Partie chutée ou d'un Mulot chuté.</div>
         ${this.fhContractTableHtml(true)}
-        <div class="card-title" style="margin-top:14px">Équipe gagnante de la donne</div>
+        <label class="fh-open-bid-option" id="fh-open-bid-option">
+          <input type="checkbox" id="fh-modal-open-bid">
+          <span><strong>Enchère ouverte</strong><small>Atout choisi après le minou. Même pointage que l'atout final, sans réduction.</small></span>
+        </label>
+        <div class="card-title" style="margin-top:14px">Équipe qui a misé</div>
         <div class="team-select-row" id="fh-modal-bidder-buttons"></div>
-        <button class="btn btn-primary" id="fh-modal-btn-apply-team" style="margin-top:14px" onclick="UI.fhApplyTeamAward()" disabled>✓ Valider la donne</button>
+        <div class="result-btns" style="margin-top:14px">
+          <button class="btn btn-success" id="fh-modal-btn-team-win" onclick="UI.fhApplyResult(true)" disabled>✅ Mise gagnée</button>
+          <button class="btn btn-danger" id="fh-modal-btn-team-lose" onclick="UI.fhApplyResult(false)" disabled>❌ Mise perdue</button>
+        </div>
+        <div class="setting-sub fh-team-result-hint" id="fh-team-result-hint"></div>
       `;
     this.openAppModal('Partie terminée', html);
     this.renderFhEntityButtons();
@@ -2313,6 +2368,14 @@ const UI = {
     document.querySelectorAll('.contract-btn').forEach(btn => {
       btn.classList.toggle('selected', btn.dataset.key === key);
     });
+    const openBid = document.getElementById('fh-modal-open-bid');
+    const openBidWrap = document.getElementById('fh-open-bid-option');
+    const isMulot = Games.fiveHundred.isMulotContract(key);
+    if (openBid) {
+      openBid.disabled = isMulot;
+      if (isMulot) openBid.checked = false;
+    }
+    if (openBidWrap) openBidWrap.classList.toggle('disabled', isMulot);
     this.updateFhSubmitBtn();
   },
 
@@ -2440,10 +2503,28 @@ const UI = {
       if (el) el.disabled = !hasSelection;
     });
 
+    ['fh-modal-btn-team-win','fh-modal-btn-team-lose'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !(game?.mode === 'teams' && hasSelection);
+    });
+
     ['fh-btn-bidder-win','fh-btn-bidder-lose','fh-modal-btn-bidder-win','fh-modal-btn-bidder-lose'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.disabled = !(game?.mode === 'individual' && hasSelection);
     });
+
+    const hint = document.getElementById('fh-team-result-hint');
+    if (hint && game?.mode === 'teams' && UI._selectedContract) {
+      const full = Games.fiveHundred.contractPoints(game, UI._selectedContract);
+      const failed = Games.fiveHundred.failedTeamContractPoints(game, UI._selectedContract);
+      if (Games.fiveHundred.isMulotContract(UI._selectedContract)) {
+        hint.innerHTML = `<strong>Mulot :</strong> réussite +${full}; échec +${failed} aux adversaires.`;
+      } else if (Games.fiveHundred.isGameContract(UI._selectedContract)) {
+        hint.innerHTML = `<strong>Partie :</strong> réussite +${full}; échec +${failed} aux adversaires (50 %).`;
+      } else {
+        hint.innerHTML = `Réussite +${full}; échec +${failed} aux adversaires.`;
+      }
+    }
   },
 
   async fhApplyResult(success) {
@@ -2453,7 +2534,8 @@ const UI = {
     if (game.mode === 'individual') return;
     const contract = UI._selectedContract;
     const biddingTeamName = game.teams[UI._selectedTeam].name;
-    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, contract, success);
+    const openBid = !!document.getElementById('fh-modal-open-bid')?.checked;
+    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, contract, success, { openBid });
     await DB.save('games', game);
 
     const next = result.nextBidder;
@@ -2463,8 +2545,8 @@ const UI = {
       isSeriesFinished
         ? `🏆 Série terminée : ${result.gameCompletion.seriesWinner.name} gagne ${game.series.wins[0]}-${game.series.wins[1]}`
         : success
-          ? `✅ ${biddingTeamName} +${Games.fiveHundred.contractPoints(game, contract)} pts · Prochaine mise : ${next.name}`
-          : `❌ Contrat chuté : +${Games.fiveHundred.contractPoints(game, contract)} pts à ${awarded} · Prochaine mise : ${next.name}`,
+          ? `✅ ${biddingTeamName} +${result.awardedPoints} pts${openBid ? ' · enchère ouverte' : ''} · Prochaine mise : ${next.name}`
+          : `❌ ${Games.fiveHundred.isMulotContract(contract) ? 'Mulot' : (Games.fiveHundred.isGameContract(contract) ? 'Partie' : 'Contrat')} chuté : +${result.awardedPoints} pts à ${awarded} · Prochaine mise : ${next.name}`,
       isSeriesFinished ? 'success' : (success ? 'success' : 'info'),
       5000
     );
@@ -2483,6 +2565,7 @@ const UI = {
       }
     }
 
+    this.closeAppModal();
     Screens.render_five_hundred();
     if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
   },
@@ -2945,7 +3028,7 @@ function buildScreenHTML() {
         <div class="game-card fiveh" onclick="UI.startNewGame('fiveHundred')">
           <span class="game-card-icon">🃏</span>
           <div class="game-card-name">Jeu de 500</div>
-          <div class="game-card-desc">Équipes ou individuel · enchères 7 à 10</div>
+          <div class="game-card-desc">Équipes ou individuel · enchères 7 à 10 + Mulot</div>
         </div>
         <div class="game-card generic" onclick="UI.startNewGame('generic')">
           <span class="game-card-icon">🎮</span>
