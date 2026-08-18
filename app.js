@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.7';
+const APP_VERSION = '2.8';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -890,11 +890,12 @@ const Games = {
         gameCompletion = this.completeTeamGame(game, winnerIdx);
       }
 
-      let nextBidder = null;
-      if (!gameCompletion?.seriesWon) {
-        nextBidder = this.advanceNextBidder(game);
-        lastHistory.nextBidder = nextBidder.name;
-      }
+      // La rotation du premier miseur est absolue : chaque résultat validé
+      // fait avancer au joueur suivant, même si cette donne termine une partie
+      // ou la série. Il n'y a aucune exception à cette rotation.
+      const nextBidder = this.advanceNextBidder(game);
+      lastHistory.nextBidder = nextBidder.name;
+      lastHistory.nextBidderSeat = nextBidder.seatIdx;
       return {
         delta: awardedPoints,
         contractPoints: pts,
@@ -941,11 +942,10 @@ const Games = {
         gameCompletion = this.completeTeamGame(game, winnerIdx);
       }
 
-      let nextBidder = null;
-      if (!gameCompletion?.seriesWon) {
-        nextBidder = this.advanceNextBidder(game);
-        lastHistory.nextBidder = nextBidder.name;
-      }
+      // Compatibilité : cette ancienne voie respecte la même rotation stricte.
+      const nextBidder = this.advanceNextBidder(game);
+      lastHistory.nextBidder = nextBidder.name;
+      lastHistory.nextBidderSeat = nextBidder.seatIdx;
       return {
         delta: pts,
         awardedTeam,
@@ -1533,8 +1533,6 @@ const Screens = {
     if (nextBanner) {
       nextBanner.innerHTML = `<span>Première mise de la prochaine donne</span><strong>${Utils.esc(next.name)}</strong>`;
     }
-    const nullDealBtn = document.getElementById('fh-null-deal-btn');
-    if (nullDealBtn) nullDealBtn.style.display = game.mode === 'teams' ? 'flex' : 'none';
     const compact = document.getElementById('fh-series-inline');
     if (compact) {
       if (game.mode === 'teams') {
@@ -1986,7 +1984,7 @@ const UI = {
       </div>
       ${game.mode === 'teams' ? `
       <div class="fh-info-group fh-v24-rules">
-        <div class="card-title">Règles 500 adaptées v2.7</div>
+        <div class="card-title">Règles 500 adaptées v2.8</div>
         <div class="setting-sub"><strong>Enchère ouverte :</strong> 7, 8 ou 9 peuvent être annoncés sans nommer l'atout avant le minou. Après avoir pris le minou, le gagnant choisit ♠, ♣, ♦, ♥ ou S, mais conserve le pointage fixe de l'enchère ouverte : 7 = 130, 8 = 230, 9 = 330. Le risque est moindre, donc le contrat rapporte moins qu'une couleur annoncée immédiatement.</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Ordre clé : 7S (220) &lt; 8 ouvert (230) &lt; 8♠ (240), puis 8S (320) &lt; Mulot (325) &lt; 9 ouvert (330) &lt; 9♠ (340) ... 9S (420) &lt; Gros Mulot (440) &lt; Partie ♠ (1040).</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Partie chutée :</strong> les adversaires reçoivent 50 % de la valeur du contrat final. Exemples : Partie ♠ = 520, Partie ♥ = 550, Partie S = 560.</div>
@@ -2045,6 +2043,9 @@ const UI = {
           <button class="btn btn-danger" id="fh-modal-btn-team-lose" onclick="UI.fhApplyResult(false)" disabled>❌ Mise perdue</button>
         </div>
         <div class="setting-sub fh-team-result-hint" id="fh-team-result-hint"></div>
+        <div class="divider" style="margin-top:16px"></div>
+        <button class="btn btn-secondary" id="fh-modal-null-deal-btn" onclick="UI.fhNullDeal()">∅ Partie nulle</button>
+        <div class="setting-sub" style="margin-top:8px">Une partie nulle fait elle aussi avancer immédiatement la première mise au joueur suivant.</div>
       `;
     this.openAppModal('Partie terminée', html);
     this.renderFhEntityButtons();
@@ -2656,6 +2657,7 @@ const UI = {
       const blocked = result.blockedTeams.map(t => t.name).join(' / ');
       Utils.toast(`Partie nulle : aucun point ajouté, car ${blocked} atteindrait 1000. Prochaine mise : ${result.nextBidder.name}`, 'info', 5200);
     }
+    this.closeAppModal();
     Screens.render_five_hundred();
     setTimeout(() => UI.announceFhStarter(true), 120);
   },
@@ -3250,7 +3252,6 @@ function buildScreenHTML() {
 
       <div class="fh-action-row">
         <button class="btn btn-primary" onclick="UI.openFhResultModal()">✓ Partie terminée</button>
-        <button class="btn btn-secondary" id="fh-null-deal-btn" onclick="UI.fhNullDeal()">∅ Partie nulle</button>
         <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">± Ajustement manuel</button>
       </div>
 

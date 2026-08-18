@@ -1562,7 +1562,7 @@ body {
   #screen-five-hundred .fh-series-inline { grid-column: 1 / -1; }
   #screen-five-hundred .five-hundred-teams { grid-column: 1 / -1; }
   #screen-five-hundred #fh-victory { grid-column: 1 / -1; }
-  #screen-five-hundred .fh-action-row { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
+  #screen-five-hundred .fh-action-row { grid-column: 1 / -1; grid-template-columns: repeat(2, 1fr); }
   #screen-five-hundred .fh-end-series-zone { grid-column: 1 / -1; }
 }
 
