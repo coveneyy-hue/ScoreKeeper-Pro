@@ -1648,3 +1648,73 @@ body {
 .fh-v24-rules .setting-sub strong {
   color: var(--text-primary);
 }
+
+
+/* ── ScoreKeeper Pro 2.5 : enchères ouvertes 7/8/9 + Mulot 330 ── */
+.fh-open-contract-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(45,212,199,.24);
+  border-radius: var(--radius-sm);
+  background: rgba(45,212,199,.06);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.fh-open-contract-legend strong { color: var(--accent-2); }
+.fh-contract-head.with-open,
+.fh-contract-grid.with-open {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.fh-open-contract {
+  border-color: rgba(45,212,199,.34);
+  background: linear-gradient(160deg, rgba(45,212,199,.09), var(--bg-elevated));
+}
+.open-contract-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(45,212,199,.16);
+  color: var(--accent-2);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+.fh-contract-open-empty {
+  min-height: 70px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-disabled);
+  background: rgba(255,255,255,.015);
+}
+.fh-mulot-contract { border-color: rgba(255,192,97,.42); }
+@media (max-width: 680px) {
+  .fh-open-contract-legend {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .fh-contract-head.with-open,
+  .fh-contract-grid.with-open { gap: 3px; }
+  .fh-contract-open-empty { min-height: 66px; }
+  .fh-contract-grid.with-open .contract-btn,
+  .fh-contract-grid.with-open .fh-contract-value-cell {
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+  .fh-contract-grid.with-open .contract-inline-label { gap: 3px; }
+  .fh-contract-grid.with-open .contract-inline-label .bid-text,
+  .fh-contract-grid.with-open .contract-inline-label .suit-inline { font-size: 14px; }
+  .fh-contract-grid.with-open .contract-btn small,
+  .fh-contract-grid.with-open .fh-contract-value-cell strong { font-size: 11px; }
+}
