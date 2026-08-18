@@ -1650,7 +1650,7 @@ body {
 }
 
 
-/* ── ScoreKeeper Pro 2.6 : enchères ouvertes 130/230/330 + Mulot 325 ── */
+/* ── ScoreKeeper Pro 2.7 : enchères ouvertes + Mulot 325 + Gros Mulot 440 ── */
 .fh-open-contract-legend {
   display: flex;
   align-items: center;
@@ -1698,6 +1698,12 @@ body {
   background: rgba(255,255,255,.015);
 }
 .fh-mulot-contract { border-color: rgba(255,192,97,.42); }
+.fh-gros-mulot-contract {
+  border-color: rgba(167,139,250,.58);
+  background: linear-gradient(135deg, rgba(167,139,250,.14), var(--bg-elevated));
+}
+.fh-gros-mulot-contract .bid-text { color: var(--accent); letter-spacing: .7px; }
+.fh-gros-mulot-contract small { color: var(--text-secondary); }
 
 .fh-mulot-between-row {
   grid-column: 1 / -1;
