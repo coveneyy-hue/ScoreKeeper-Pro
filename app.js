@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.10';
+const APP_VERSION = '2.11';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -1990,8 +1990,6 @@ const UI = {
         <div class="setting-sub"><strong>Enchère ouverte :</strong> 7, 8 ou 9 peuvent être annoncés sans nommer l'atout avant le minou. Après avoir pris le minou, le gagnant choisit ♠, ♣, ♦, ♥ ou S, mais conserve le pointage fixe de l'enchère ouverte : 7 = 130, 8 = 230, 9 = 330. Le risque est moindre, donc le contrat rapporte moins qu'une couleur annoncée immédiatement.</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Ordre clé : 7S (220) &lt; Mulot (225) &lt; 8 ouvert (230) &lt; 8♠ (240) ... 8S (320) &lt; 9 ouvert (330) &lt; 9♠ (340) ... 9S (420) &lt; Gros Mulot (440) &lt; Partie ♠ (1040). Le Mulot vaut 225 points : il est la surenchère immédiatement au-dessus de 7S et demeure sous 8 ouvert (230) et 8♠ (240).</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Partie chutée :</strong> les adversaires reçoivent 50 % de la valeur du contrat final. Exemples : Partie ♠ = 520, Partie ♥ = 550, Partie S = 560.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Mulot :</strong> le miseur joue seul et doit faire 0 levée sur 10. Son partenaire ne joue pas. Le minou de 6 cartes reste face cachée et n'est pas consulté. Il n'y a pas d'atout. Les deux jokers deviennent les deux cartes les plus faibles et ne permettent pas d'éviter l'obligation de fournir la couleur. Réussite : +225. Échec dès la première levée remportée : +225 aux adversaires.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Gros Mulot :</strong> même objectif que le Mulot, mais après la première levée la main du miseur est exposée face visible pour le reste de la donne. Réussite : +440. Échec : +440 aux adversaires.</div>
       </div>` : ''}
     `;
     this.openAppModal('Informations du 500', html);
@@ -2036,7 +2034,7 @@ const UI = {
         <div id="fh-modal-opponent-tricks-panel" style="display:none"></div>
       `
       : `
-        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat final, puis l'équipe qui a remporté les enchères. Pour une enchère ouverte, choisissez 7 O, 8 O ou 9 O : le pointage demeure 130, 230 ou 330 même après le choix de l'atout. La pénalité réduite d'une Partie et le pointage du Mulot ou du Gros Mulot sont appliqués automatiquement.</div>
+        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat final, puis l'équipe qui a remporté les enchères. Pour une enchère ouverte, choisissez 7 O, 8 O ou 9 O : le pointage demeure 130, 230 ou 330 même après le choix de l'atout. La pénalité réduite d'une Partie est appliquée automatiquement.</div>
         ${this.fhContractTableHtml(true)}
         <div class="card-title" style="margin-top:14px">Équipe qui a misé</div>
         <div class="team-select-row" id="fh-modal-bidder-buttons"></div>
@@ -2589,10 +2587,8 @@ const UI = {
     if (hint && game?.mode === 'teams' && UI._selectedContract) {
       const full = Games.fiveHundred.contractPoints(game, UI._selectedContract);
       const failed = Games.fiveHundred.failedTeamContractPoints(game, UI._selectedContract);
-      if (Games.fiveHundred.isGrosMulotContract(UI._selectedContract)) {
-        hint.innerHTML = `<strong>Gros Mulot :</strong> réussite +${full}; échec +${failed} aux adversaires.`;
-      } else if (Games.fiveHundred.isMulotContract(UI._selectedContract)) {
-        hint.innerHTML = `<strong>Mulot :</strong> réussite +${full}; échec +${failed} aux adversaires.`;
+      if (Games.fiveHundred.isAnyMulotContract(UI._selectedContract)) {
+        hint.innerHTML = '';
       } else if (Games.fiveHundred.isOpenContract(UI._selectedContract)) {
         hint.innerHTML = `<strong>${Games.fiveHundred.contractLabel(UI._selectedContract)} :</strong> réussite +${full}; échec +${failed} aux adversaires. L'atout choisi après le minou ne change pas cette valeur.`;
       } else if (Games.fiveHundred.isGameContract(UI._selectedContract)) {
