@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.8';
+const APP_VERSION = '2.10';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -448,11 +448,11 @@ const FIVE_HUNDRED_OPEN_TEAM_SCORES = {
 };
 
 // Contrats spéciaux en équipes.
-// Mulot : 0 levée, sans minou ni atout. Réussite = 325 points; échec = 325 points aux adversaires.
+// Mulot : 0 levée, sans minou ni atout. Réussite = 225 points; échec = 225 points aux adversaires.
 const FIVE_HUNDRED_MULOT = {
   key: 'MULOT',
-  points: 325,
-  failedOpponentPoints: 325,
+  points: 225,
+  failedOpponentPoints: 225,
 };
 
 // Gros Mulot : même objectif de 0 levée, mais la main du miseur est exposée
@@ -848,7 +848,7 @@ const Games = {
     /** Applique un résultat de contrat en mode équipes.
      * Contrat normal chuté : valeur complète aux adversaires.
      * Partie chutée : 50 % de la valeur aux adversaires.
-     * Mulot chuté : 325 points aux adversaires.
+     * Mulot chuté : 225 points aux adversaires.
      * Gros Mulot chuté : 440 points aux adversaires.
      * Une partie est gagnée dès qu'une équipe atteint 1000 points.
      */
@@ -874,7 +874,7 @@ const Games = {
         points: pts,
         awardedPoints,
         success,
-        lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-325' : (this.isGrosMulotContract(contractKey) ? 'gros-mulot-440' : (this.isGameContract(contractKey) ? 'partie-half' : 'full'))),
+        lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-225' : (this.isGrosMulotContract(contractKey) ? 'gros-mulot-440' : (this.isGameContract(contractKey) ? 'partie-half' : 'full'))),
         oldValue: oldAwarded,
         delta: awardedPoints,
         newValue: awardedTeam.score,
@@ -1346,7 +1346,7 @@ const Screens = {
             `).join('')}
           </div>
           <div class="setting-sub" style="margin-top:12px"><strong>Équipes déterminées automatiquement après le tirage.</strong><br>Les positions 1+3 affronteront les positions 2+4.</div>
-          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne seulement 50 % de sa valeur aux adversaires. Les enchères ouvertes valent 130 / 230 / 330 points pour 7 / 8 / 9. Un Mulot vaut 325 points et un Gros Mulot 440 points, réussis ou chutés. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
+          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne seulement 50 % de sa valeur aux adversaires. Les enchères ouvertes valent 130 / 230 / 330 points pour 7 / 8 / 9. Un Mulot vaut 225 points et un Gros Mulot 440 points, réussis ou chutés. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
         </div>
 
         <div class="card" id="fh-new-individual" style="display:none">
@@ -1789,9 +1789,11 @@ const Screens = {
         const ruleText = e.lossRule === 'partie-half'
           ? ' · pénalité 50 %'
           : (e.lossRule === 'gros-mulot-440' ? ' · pénalité Gros Mulot 440'
+            : (e.lossRule === 'mulot-225' ? ' · pénalité Mulot 225'
+            : (e.lossRule === 'mulot-230' ? ' · pénalité Mulot 230'
             : (e.lossRule === 'mulot-325' ? ' · pénalité Mulot 325'
               : (e.lossRule === 'mulot-330' ? ' · pénalité Mulot 330'
-                : (e.lossRule === 'mulot-250' ? ' · pénalité Mulot 250' : ''))));
+                : (e.lossRule === 'mulot-250' ? ' · pénalité Mulot 250' : ''))))));
         // Compatibilité avec le premier build 2.4 qui journalisait encore une case « enchère ouverte ».
         const openText = e.openBid ? ' · enchère ouverte' : '';
         return `
@@ -1907,8 +1909,8 @@ const UI = {
 
     const mulotHtml = game?.mode === 'teams'
       ? (interactive
-        ? `<button class="contract-btn fh-mulot-contract fh-mulot-between-row ${UI._selectedContract === FIVE_HUNDRED_MULOT.key ? 'selected' : ''}" onclick="UI.selectContract('${FIVE_HUNDRED_MULOT.key}')" data-key="${FIVE_HUNDRED_MULOT.key}"><span class="contract-inline-label"><span class="bid-text">MULOT</span></span><small>325 / échec 325</small></button>`
-        : `<div class="fh-contract-value-cell fh-mulot-contract fh-mulot-between-row"><span class="contract-inline-label"><span class="bid-text">MULOT</span></span><strong>325</strong><small>échec : 325</small></div>`)
+        ? `<button class="contract-btn fh-mulot-contract fh-mulot-between-row ${UI._selectedContract === FIVE_HUNDRED_MULOT.key ? 'selected' : ''}" onclick="UI.selectContract('${FIVE_HUNDRED_MULOT.key}')" data-key="${FIVE_HUNDRED_MULOT.key}"><span class="contract-inline-label"><span class="bid-text">MULOT</span></span><small>225 / échec 225</small></button>`
+        : `<div class="fh-contract-value-cell fh-mulot-contract fh-mulot-between-row"><span class="contract-inline-label"><span class="bid-text">MULOT</span></span><strong>225</strong><small>échec : 225</small></div>`)
       : '';
 
     const grosMulotHtml = game?.mode === 'teams'
@@ -1939,7 +1941,7 @@ const UI = {
         return contractCell(key, labelHtml, pts);
       }).join('');
 
-      if (bid === '8' && mulotHtml) row += mulotHtml;
+      if (bid === '7' && mulotHtml) row += mulotHtml;
       if (bid === '9' && grosMulotHtml) row += grosMulotHtml;
       return row;
     }).join('');
@@ -1986,9 +1988,9 @@ const UI = {
       <div class="fh-info-group fh-v24-rules">
         <div class="card-title">Règles 500 adaptées v2.8</div>
         <div class="setting-sub"><strong>Enchère ouverte :</strong> 7, 8 ou 9 peuvent être annoncés sans nommer l'atout avant le minou. Après avoir pris le minou, le gagnant choisit ♠, ♣, ♦, ♥ ou S, mais conserve le pointage fixe de l'enchère ouverte : 7 = 130, 8 = 230, 9 = 330. Le risque est moindre, donc le contrat rapporte moins qu'une couleur annoncée immédiatement.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Ordre clé : 7S (220) &lt; 8 ouvert (230) &lt; 8♠ (240), puis 8S (320) &lt; Mulot (325) &lt; 9 ouvert (330) &lt; 9♠ (340) ... 9S (420) &lt; Gros Mulot (440) &lt; Partie ♠ (1040).</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Ordre clé : 7S (220) &lt; Mulot (225) &lt; 8 ouvert (230) &lt; 8♠ (240) ... 8S (320) &lt; 9 ouvert (330) &lt; 9♠ (340) ... 9S (420) &lt; Gros Mulot (440) &lt; Partie ♠ (1040). Le Mulot vaut 225 points : il est la surenchère immédiatement au-dessus de 7S et demeure sous 8 ouvert (230) et 8♠ (240).</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Partie chutée :</strong> les adversaires reçoivent 50 % de la valeur du contrat final. Exemples : Partie ♠ = 520, Partie ♥ = 550, Partie S = 560.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Mulot :</strong> le miseur joue seul et doit faire 0 levée sur 10. Son partenaire ne joue pas. Le minou de 6 cartes reste face cachée et n'est pas consulté. Il n'y a pas d'atout. Les deux jokers deviennent les deux cartes les plus faibles et ne permettent pas d'éviter l'obligation de fournir la couleur. Réussite : +325. Échec dès la première levée remportée : +325 aux adversaires.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Mulot :</strong> le miseur joue seul et doit faire 0 levée sur 10. Son partenaire ne joue pas. Le minou de 6 cartes reste face cachée et n'est pas consulté. Il n'y a pas d'atout. Les deux jokers deviennent les deux cartes les plus faibles et ne permettent pas d'éviter l'obligation de fournir la couleur. Réussite : +225. Échec dès la première levée remportée : +225 aux adversaires.</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Gros Mulot :</strong> même objectif que le Mulot, mais après la première levée la main du miseur est exposée face visible pour le reste de la donne. Réussite : +440. Échec : +440 aux adversaires.</div>
       </div>` : ''}
     `;
