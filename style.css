@@ -1709,6 +1709,17 @@ body {
 .fh-gros-mulot-contract .bid-text { color: var(--accent); letter-spacing: .7px; }
 .fh-gros-mulot-contract small { color: var(--text-secondary); }
 
+.fh-mulot-supreme-contract {
+  border-color: rgba(255,215,64,.75);
+  background: linear-gradient(135deg, rgba(255,215,64,.18), rgba(167,139,250,.10), var(--bg-elevated));
+}
+.fh-mulot-supreme-contract .bid-text {
+  color: var(--warning);
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+.fh-mulot-supreme-contract small { color: var(--text-primary); }
+
 .fh-mulot-between-row {
   grid-column: 1 / -1;
   width: 100%;
