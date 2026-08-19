@@ -1249,6 +1249,10 @@ body {
 .stats-row { background:var(--bg-elevated); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; }
 .stats-main { min-width:0; display:flex; flex-direction:column; }
 .stats-main strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stats-name-line { display:flex; align-items:center; gap:6px; min-width:0; }
+.stats-name-line strong { min-width:0; }
+.stats-trophy { flex-shrink:0; font-size:16px; line-height:1; }
+.stats-row.stats-leader { box-shadow: inset 0 0 0 1px rgba(255,192,97,.28); }
 .stats-sub { color:var(--text-secondary); font-size:10px; margin-top:2px; }
 .stats-pct { color:var(--accent-2); font-weight:800; text-align:right; }
 .stats-row > div:nth-child(2) { text-align:center; font-variant-numeric:tabular-nums; }
@@ -1504,7 +1508,7 @@ body {
   .generic-score-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 
   /* Statistiques : tous les filtres sur une ligne */
-  .stats-filter-grid { grid-template-columns: repeat(5, 1fr); }
+  .stats-filter-grid { grid-template-columns: repeat(6, 1fr); }
   .stats-summary { display: flex; flex-wrap: wrap; gap: 22px; }
 
   /* Historique : plus de hauteur visible, layout deux colonnes possible */

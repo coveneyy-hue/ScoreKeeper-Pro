@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.11';
+const APP_VERSION = '2.12';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -1611,6 +1611,10 @@ const Screens = {
     const periodFilter = document.getElementById('stats-period-filter')?.value || 'all';
     const playerFilter = document.getElementById('stats-player-filter')?.value || 'all';
     const teamFilter = document.getElementById('stats-team-filter')?.value || 'all';
+    // Par défaut, les classements ne montrent que les joueurs/équipes ayant au moins 3 parties.
+    // L'utilisateur peut lever ce seuil avec le filtre « Minimum de parties ».
+    const minGamesFilter = document.getElementById('stats-min-games-filter')?.value || '3';
+    const minGames = minGamesFilter === 'all' ? 0 : Math.max(0, parseInt(minGamesFilter, 10) || 3);
 
     const allPlayers = new Map();
     const allTeams = new Map();
@@ -1668,7 +1672,18 @@ const Screens = {
       detailMap.set(key, x);
     }));
 
-    const rowHtml = (x, extra='') => `<div class="stats-row"><div class="stats-main"><strong>${Utils.esc(x.name)}</strong>${extra}</div><div>${x.wins}/${x.games}</div><div class="stats-pct">${Stats.pct(x.wins,x.games).toFixed(1)} %</div></div>`;
+    const rankRows = (values) => [...values]
+      .filter(x => x.games >= minGames)
+      .sort((a, b) => {
+        const pctDiff = Stats.pct(b.wins, b.games) - Stats.pct(a.wins, a.games);
+        if (Math.abs(pctDiff) > 1e-9) return pctDiff;
+        if (b.games !== a.games) return b.games - a.games;
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return a.name.localeCompare(b.name, 'fr-CA');
+      });
+    const leaderPct = (rows) => rows.length ? Stats.pct(rows[0].wins, rows[0].games) : null;
+    const isLeader = (x, bestPct) => bestPct !== null && Math.abs(Stats.pct(x.wins, x.games) - bestPct) < 1e-9;
+    const rowHtml = (x, extra='', trophy=false) => `<div class="stats-row ${trophy ? 'stats-leader' : ''}"><div class="stats-main"><div class="stats-name-line">${trophy ? '<span class="stats-trophy" title="Meilleur pourcentage de victoires" aria-label="Meilleur pourcentage de victoires">🏆</span>' : ''}<strong>${Utils.esc(x.name)}</strong></div>${extra}</div><div>${x.wins}/${x.games}</div><div class="stats-pct">${Stats.pct(x.wins,x.games).toFixed(1)} %</div></div>`;
     const playersEl = document.getElementById('stats-player-results');
     const teamsEl = document.getElementById('stats-team-results');
     const detailEl = document.getElementById('stats-detail-results');
@@ -1680,16 +1695,26 @@ const Screens = {
       summaryEl.innerHTML = `<strong>${records.length}</strong> partie(s) terminée(s) correspondant aux filtres${resetInfo}`;
     }
     if (playersEl) {
-      const rows = [...playerMap.values()].sort((a,b)=>b.games-a.games || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games));
-      playersEl.innerHTML = rows.length ? rows.map(x=>rowHtml(x)).join('') : '<div class="empty-state-text">Aucune statistique individuelle</div>';
+      const rows = rankRows(playerMap.values());
+      const bestPct = leaderPct(rows);
+      playersEl.innerHTML = rows.length
+        ? rows.map(x => rowHtml(x, '', isLeader(x, bestPct))).join('')
+        : `<div class="empty-state-text">${minGames ? `Aucun joueur avec au moins ${minGames} parties` : 'Aucune statistique individuelle'}</div>`;
     }
     if (teamsEl) {
-      const rows = [...teamMap.values()].sort((a,b)=>b.games-a.games || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games));
-      teamsEl.innerHTML = rows.length ? rows.map(x=>rowHtml(x)).join('') : '<div class="empty-state-text">Aucune statistique d’équipe</div>';
+      const rows = rankRows(teamMap.values());
+      const bestPct = leaderPct(rows);
+      teamsEl.innerHTML = rows.length
+        ? rows.map(x => rowHtml(x, '', isLeader(x, bestPct))).join('')
+        : `<div class="empty-state-text">${minGames ? `Aucune équipe avec au moins ${minGames} parties` : 'Aucune statistique d’équipe'}</div>`;
     }
     if (detailEl) {
-      const rows = [...detailMap.values()].sort((a,b)=>a.name.localeCompare(b.name,'fr-CA') || a.game.localeCompare(b.game,'fr-CA'));
-      detailEl.innerHTML = rows.length ? rows.map(x=>rowHtml(x, `<span class="stats-sub">${Utils.esc(x.game)} · ${x.mode === 'teams' ? 'Équipe' : 'Individuel'}</span>`)).join('') : '<div class="empty-state-text">Aucun détail</div>';
+      const rows = [...detailMap.values()]
+        .filter(x => x.games >= minGames)
+        .sort((a,b)=>a.name.localeCompare(b.name,'fr-CA') || a.game.localeCompare(b.game,'fr-CA'));
+      detailEl.innerHTML = rows.length
+        ? rows.map(x=>rowHtml(x, `<span class="stats-sub">${Utils.esc(x.game)} · ${x.mode === 'teams' ? 'Équipe' : 'Individuel'}</span>`)).join('')
+        : `<div class="empty-state-text">${minGames ? `Aucun détail avec au moins ${minGames} parties` : 'Aucun détail'}</div>`;
     }
   },
 
@@ -3370,6 +3395,7 @@ function buildScreenHTML() {
           <div class="form-group"><label class="form-label">Joueur</label><select class="form-select" id="stats-player-filter" onchange="UI.refreshStats()"><option value="all">Tous les joueurs</option></select></div>
           <div class="form-group"><label class="form-label">Équipe</label><select class="form-select" id="stats-team-filter" onchange="UI.refreshStats()"><option value="all">Toutes les équipes</option></select></div>
           <div class="form-group"><label class="form-label">Période</label><select class="form-select" id="stats-period-filter" onchange="UI.refreshStats()"><option value="all">Depuis toujours</option><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option></select></div>
+          <div class="form-group"><label class="form-label">Minimum de parties</label><select class="form-select" id="stats-min-games-filter" onchange="UI.refreshStats()"><option value="3" selected>3 parties ou +</option><option value="all">Afficher tout</option></select></div>
         </div>
       </div>
 
