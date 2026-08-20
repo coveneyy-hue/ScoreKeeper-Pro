@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.14 : mise à jour PWA renforcée pour Android/Chrome
+ * v2.15 : rotation équilibrée des équipes 500 par défaut
  */
 
-const CACHE_NAME = 'scorekeeper-v2.14-fix1';
+const CACHE_NAME = 'scorekeeper-v2.15';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.14',
-  './app.js?v=2.14',
+  './style.css?v=2.15',
+  './app.js?v=2.15',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

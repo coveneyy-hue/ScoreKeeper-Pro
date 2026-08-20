@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.14';
+const APP_VERSION = '2.15';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -607,13 +607,31 @@ const Games = {
 
   /* ─── Jeu de 500 ─── */
   fiveHundred: {
-    createTeams(team0Name, team1Name, tablePlayerNames = [], seriesBestOf = 3) {
-      const defaults = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
-      const enteredNames = Array.from({length: 4}, (_, i) => tablePlayerNames[i] || defaults[i]);
-      const shuffledNames = Utils.shuffle(enteredNames);
-      // Le joueur qui commence doit toujours apparaître en premier dans l'ordre affiché.
-      const starterOffset = Utils.randomIndex(shuffledNames.length);
-      const names = shuffledNames.slice(starterOffset).concat(shuffledNames.slice(0, starterOffset));
+    createTeams(team0Name, team1Name, tablePlayerNames = [], seriesBestOf = 3, defaultRotation = null) {
+      const enteredNames = Array.from({length: 4}, (_, i) => tablePlayerNames[i] || FIVE_HUNDRED_DEFAULT_TEAM_PLAYERS[i]);
+      const defaultsUnchanged = enteredNames.every((name, i) => name === FIVE_HUNDRED_DEFAULT_TEAM_PLAYERS[i]);
+
+      let names;
+      let rotationMeta = null;
+      if (defaultsUnchanged && defaultRotation && Number.isInteger(defaultRotation.pairingIndex)) {
+        const pairingIndex = ((defaultRotation.pairingIndex % FIVE_HUNDRED_DEFAULT_TEAM_PAIRINGS.length) + FIVE_HUNDRED_DEFAULT_TEAM_PAIRINGS.length) % FIVE_HUNDRED_DEFAULT_TEAM_PAIRINGS.length;
+        const baseOrder = [...FIVE_HUNDRED_DEFAULT_TEAM_PAIRINGS[pairingIndex]];
+        // Faire aussi tourner le premier miseur sur les quatre joueurs. Une rotation circulaire
+        // conserve les partenaires (positions 1+3 et 2+4) tout en équilibrant les départs.
+        const starterOffset = ((Number(defaultRotation.starterOffset) || 0) % baseOrder.length + baseOrder.length) % baseOrder.length;
+        names = baseOrder.slice(starterOffset).concat(baseOrder.slice(0, starterOffset));
+        rotationMeta = {
+          managed: true,
+          pairingIndex,
+          starterOffset,
+          sequenceNumber: Math.max(1, Number(defaultRotation.sequenceNumber) || 1),
+        };
+      } else {
+        const shuffledNames = Utils.shuffle(enteredNames);
+        // Si les noms par défaut sont modifiés, conserver le comportement historique aléatoire.
+        const starterOffset = Utils.randomIndex(shuffledNames.length);
+        names = shuffledNames.slice(starterOffset).concat(shuffledNames.slice(0, starterOffset));
+      }
       const firstBidderIdx = 0;
       const bestOf = [1, 3, 5, 7].includes(parseInt(seriesBestOf, 10)) ? parseInt(seriesBestOf, 10) : 3;
       const winsNeeded = Math.floor(bestOf / 2) + 1;
@@ -630,8 +648,9 @@ const Games = {
           { name: team0AutoName, score: 0 },
           { name: team1AutoName, score: 0 },
         ],
-        // Les partenaires sont les positions 1+3 et 2+4 dans l'ordre aléatoire affiché.
+        // Les partenaires sont toujours les positions 1+3 et 2+4 dans l'ordre affiché.
         tablePlayers: names.map((name, i) => ({ name, seatIdx: i, teamIdx: i % 2 })),
+        defaultTeamRotation: rotationMeta,
         nextBidderIdx: firstBidderIdx,
         scoreLimit: 1000,
         series: {
@@ -1395,7 +1414,7 @@ const Screens = {
 
         <div class="card" id="fh-new-teams">
           <div class="card-title">500 en équipes</div>
-          <div class="setting-sub" style="margin-bottom:12px">Les noms d'équipes sont générés automatiquement à partir des deux partenaires après le tirage de l'ordre, par exemple « Yannick & Julie ».</div>
+          <div class="setting-sub" style="margin-bottom:12px">Les noms d'équipes sont générés automatiquement à partir des deux partenaires. Avec les 4 joueurs par défaut, les équipes alternent selon un historique pour que chacun joue avec chacun de façon équilibrée.</div>
 
           <div class="form-group">
             <label class="form-label">Format de la série</label>
@@ -1409,7 +1428,7 @@ const Screens = {
 
           <div class="divider"></div>
           <div class="card-title">Joueurs autour de la table</div>
-          <div class="setting-sub" style="margin-bottom:12px">Les 4 noms seront mélangés au hasard au démarrage. Dans l'ordre obtenu, les joueurs 1 et 3 seront partenaires; les joueurs 2 et 4 seront partenaires.</div>
+          <div class="setting-sub" style="margin-bottom:12px">Avec les 4 noms par défaut inchangés, les 3 combinaisons de partenaires alternent automatiquement d'une nouvelle série à l'autre. Si un nom est modifié, l'ordre est tiré au hasard. Les joueurs 1 et 3 sont partenaires; les joueurs 2 et 4 sont partenaires.</div>
           <div id="fh-team-player-inputs" class="player-inputs">
             ${['Yannick','Lily-Rose','Victor','Julie'].map((name, i) => `
               <div class="player-input-row fh-team-player-row">
@@ -1418,7 +1437,7 @@ const Screens = {
               </div>
             `).join('')}
           </div>
-          <div class="setting-sub" style="margin-top:12px"><strong>Équipes déterminées automatiquement après le tirage.</strong><br>Les positions 1+3 affronteront les positions 2+4.</div>
+          <div class="setting-sub" style="margin-top:12px"><strong>Équipes déterminées automatiquement.</strong><br>Avec les joueurs par défaut, l'historique fait alterner les 3 partenariats possibles et le premier miseur. Les positions 1+3 affrontent les positions 2+4.</div>
           <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne seulement 50 % de sa valeur aux adversaires. Les enchères ouvertes valent 130 / 230 / 330 points pour 7 / 8 / 9. Un Mulot vaut 225 points, un Gros Mulot 440 points, et le Mulot Suprême vaut 1000 points avec 500 points aux adversaires en cas d'échec. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
         </div>
 
@@ -1436,7 +1455,7 @@ const Screens = {
           <div class="setting-sub" style="margin-top:12px">L'ordre des joueurs est tiré au hasard au démarrage; le joueur affiché en premier commence à miser. Victoire à 1000 points. Le barème augmente avec le nombre de joueurs. En cas de chute, les adversaires se partagent un bassin de 100 % du contrat à 2 joueurs, 85 % à 3 et 70 % à 4.</div>
         </div>
       `;
-      UI._newFhSavedNames = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
+      UI._newFhSavedNames = [...FIVE_HUNDRED_DEFAULT_TEAM_PLAYERS];
       UI.renderNewFhPlayerInputs();
     } else {
       const defaultCount = type === 'magic' ? 4 : type === 'hearts' ? 4 : 2;
@@ -2404,7 +2423,46 @@ const UI = {
           const teamPlayerInputs = document.querySelectorAll('#fh-team-player-inputs input');
           const tablePlayerNames = Array.from(teamPlayerInputs).map((inp, i) => inp.value.trim() || `Joueur ${i + 1}`);
           const seriesBestOf = parseInt(document.getElementById('fh-series-bestof')?.value || '3', 10);
-          game = Games.fiveHundred.createTeams(null, null, tablePlayerNames, seriesBestOf);
+          const defaultsUnchanged = tablePlayerNames.length === 4 && tablePlayerNames.every((name, i) => name === FIVE_HUNDRED_DEFAULT_TEAM_PLAYERS[i]);
+
+          let defaultRotation = null;
+          if (defaultsUnchanged) {
+            const rotationState = await DB.getSetting('fhDefaultTeamRotation', {
+              nextPairingIndex: 0,
+              nextStarterOffset: 0,
+              sequenceNumber: 1,
+              history: [],
+            }) || {};
+            const pairingIndex = Number.isInteger(rotationState.nextPairingIndex) ? rotationState.nextPairingIndex : 0;
+            const starterOffset = Number.isInteger(rotationState.nextStarterOffset) ? rotationState.nextStarterOffset : 0;
+            const sequenceNumber = Math.max(1, Number(rotationState.sequenceNumber) || 1);
+            defaultRotation = { pairingIndex, starterOffset, sequenceNumber };
+          }
+
+          game = Games.fiveHundred.createTeams(null, null, tablePlayerNames, seriesBestOf, defaultRotation);
+
+          if (defaultsUnchanged && game.defaultTeamRotation?.managed) {
+            const used = game.defaultTeamRotation;
+            const currentHistory = (await DB.getSetting('fhDefaultTeamRotation', null))?.history || [];
+            const history = [...currentHistory, {
+              timestamp: new Date().toISOString(),
+              gameId: game.id,
+              sequenceNumber: used.sequenceNumber,
+              pairingIndex: used.pairingIndex,
+              starterOffset: used.starterOffset,
+              teams: game.teams.map((t, idx) => ({
+                name: t.name,
+                members: Games.fiveHundred.teamMembers(game, idx),
+              })),
+              firstBidder: Games.fiveHundred.nextBidder(game).name,
+            }].slice(-60);
+            await DB.setSetting('fhDefaultTeamRotation', {
+              nextPairingIndex: (used.pairingIndex + 1) % FIVE_HUNDRED_DEFAULT_TEAM_PAIRINGS.length,
+              nextStarterOffset: (used.starterOffset + 1) % FIVE_HUNDRED_DEFAULT_TEAM_PLAYERS.length,
+              sequenceNumber: used.sequenceNumber + 1,
+              history,
+            });
+          }
         }
 
       } else {
@@ -3600,7 +3658,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.14-fix1', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.15', {
         updateViaCache: 'none'
       });
       await registration.update();
