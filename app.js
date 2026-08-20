@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.15';
+const APP_VERSION = '2.16';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -427,6 +427,18 @@ const Router = {
 /* ================================================================
    SECTION 5 : TABLES DE POINTAGE — JEU DE 500
    ================================================================ */
+
+// Joueurs par défaut du 500 en équipes. Tant que ces quatre noms restent
+// inchangés, les trois partenariats possibles sont utilisés à tour de rôle.
+const FIVE_HUNDRED_DEFAULT_TEAM_PLAYERS = ['Yannick', 'Lily-Rose', 'Victor', 'Julie'];
+
+// Les partenaires sont toujours assis aux positions 1+3 et 2+4.
+// Chaque ordre ci-dessous représente donc l'un des trois partenariats uniques.
+const FIVE_HUNDRED_DEFAULT_TEAM_PAIRINGS = [
+  ['Yannick', 'Lily-Rose', 'Victor', 'Julie'],   // Yannick+Victor / Lily-Rose+Julie
+  ['Yannick', 'Victor', 'Lily-Rose', 'Julie'],  // Yannick+Lily-Rose / Victor+Julie
+  ['Yannick', 'Lily-Rose', 'Julie', 'Victor'],  // Yannick+Julie / Lily-Rose+Victor
+];
 
 // Barème du 500 en équipes. La mise de 10 (« la partie ») vaut au minimum
 // 1040 points à pique afin d'assurer une victoire même depuis -480, puis
@@ -3658,7 +3670,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.15', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.16', {
         updateViaCache: 'none'
       });
       await registration.update();
