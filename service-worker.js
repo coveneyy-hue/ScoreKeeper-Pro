@@ -3,7 +3,7 @@
  * v2.14 : mise à jour PWA renforcée pour Android/Chrome
  */
 
-const CACHE_NAME = 'scorekeeper-v2.14';
+const CACHE_NAME = 'scorekeeper-v2.14-fix1';
 const ASSETS_TO_CACHE = [
   './index.html',
   './style.css?v=2.14',
