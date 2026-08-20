@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.13 : mise à jour PWA renforcée pour Android/Chrome
+ * v2.14 : mise à jour PWA renforcée pour Android/Chrome
  */
 
-const CACHE_NAME = 'scorekeeper-v2.13';
+const CACHE_NAME = 'scorekeeper-v2.14';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.13',
-  './app.js?v=2.13',
+  './style.css?v=2.14',
+  './app.js?v=2.14',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

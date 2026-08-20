@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.13';
+const APP_VERSION = '2.14';
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -868,8 +868,10 @@ const Games = {
      * Mulot Suprême chuté : 500 points aux adversaires.
      * Une partie est gagnée dès qu'une équipe atteint 1000 points.
      */
-    applyContract(game, teamIdx, contractKey, success) {
+    applyContract(game, teamIdx, contractKey, success, bidderSeatIdx = null) {
       this.ensureSeries(game);
+      const seats = this.ensureTableSetup(game);
+      const bidder = Number.isInteger(bidderSeatIdx) ? seats[bidderSeatIdx] : null;
       const pts = this.contractPoints(game, contractKey);
       const awardedPoints = success ? pts : this.failedTeamContractPoints(game, contractKey);
       const opponentIdx = teamIdx === 0 ? 1 : 0;
@@ -884,6 +886,9 @@ const Games = {
         timestamp: new Date().toISOString(),
         team: biddingTeam.name,
         biddingTeamIdx: teamIdx,
+        bidder: bidder?.name || null,
+        bidderSeatIdx: bidder?.seatIdx ?? bidderSeatIdx,
+        bidderTeamIdx: bidder?.teamIdx ?? teamIdx,
         awardedTeam: awardedTeam.name,
         awardedTeamIdx: awardedIdx,
         contract: contractKey,
@@ -1258,7 +1263,59 @@ const Stats = {
     return records;
   },
 
+  contractRecordsFromGame(game) {
+    if (!game || game.type !== 'fiveHundred') return [];
+    const mode = game.mode || 'teams';
+    const history = Array.isArray(game.history) ? game.history : [];
+
+    if (mode === 'teams') {
+      const seats = Games.fiveHundred.tablePlayers(game);
+      return history
+        .filter(e => e?.kind === 'contract' && e.bidder)
+        .map((e, idx) => {
+          let bidderSeatIdx = Number.isInteger(e.bidderSeatIdx) ? e.bidderSeatIdx : seats.findIndex(p => this.nameKey(p.name) === this.nameKey(e.bidder));
+          if (bidderSeatIdx < 0) bidderSeatIdx = null;
+          const seat = bidderSeatIdx === null ? null : seats[bidderSeatIdx];
+          const teamIdx = Number.isInteger(e.bidderTeamIdx) ? e.bidderTeamIdx : (seat?.teamIdx ?? null);
+          const members = teamIdx === null ? [] : seats.filter(p => p.teamIdx === teamIdx).map(p => p.name);
+          const team = teamIdx === null ? null : {
+            name: game.teams?.[teamIdx]?.name || this.teamLabel(members),
+            members,
+            key: this.teamKey(members),
+          };
+          return {
+            id: `${game.id}:contract:${e.timestamp || idx}:${idx}`,
+            date: e.timestamp || game.updatedAt || game.createdAt,
+            gameType: 'fiveHundred',
+            gameLabel: '500',
+            mode: 'teams',
+            player: e.bidder,
+            team,
+            contract: e.contract,
+            success: !!e.success,
+            seriesGameNumber: e.seriesGameNumber || null,
+          };
+        });
+    }
+
+    return history
+      .filter(e => e?.kind === 'individualRound' && e.bidder)
+      .map((e, idx) => ({
+        id: `${game.id}:contract:${e.timestamp || idx}:${idx}`,
+        date: e.timestamp || game.updatedAt || game.createdAt,
+        gameType: 'fiveHundred',
+        gameLabel: '500',
+        mode: 'individual',
+        player: e.bidder,
+        team: null,
+        contract: e.contract,
+        success: !!e.success,
+        seriesGameNumber: null,
+      }));
+  },
+
   records(games) { return (games || []).flatMap(g => this.recordsFromGame(g)); },
+  contractRecords(games) { return (games || []).flatMap(g => this.contractRecordsFromGame(g)); },
 
   pct(wins, games) { return games ? (wins * 100 / games) : 0; },
 };
@@ -1622,6 +1679,11 @@ const Screens = {
       const recordTimestamp = new Date(r.date).getTime();
       return Number.isFinite(recordTimestamp) && recordTimestamp >= resetTimestamp;
     });
+    const allContractRecords = Stats.contractRecords(games).filter(r => {
+      if (!resetTimestamp) return true;
+      const recordTimestamp = new Date(r.date).getTime();
+      return Number.isFinite(recordTimestamp) && recordTimestamp >= resetTimestamp;
+    });
     const gameFilter = document.getElementById('stats-game-filter')?.value || 'all';
     const modeFilter = document.getElementById('stats-mode-filter')?.value || 'all';
     const periodFilter = document.getElementById('stats-period-filter')?.value || 'all';
@@ -1637,6 +1699,11 @@ const Screens = {
     allRecords.forEach(r => {
       r.players.forEach(n => { const k = Stats.nameKey(n); if (!allPlayers.has(k)) allPlayers.set(k, n); });
       r.teams.forEach(t => { if (t.key && !allTeams.has(t.key)) allTeams.set(t.key, Stats.teamLabel(t.members)); });
+    });
+    allContractRecords.forEach(r => {
+      const k = Stats.nameKey(r.player);
+      if (r.player && !allPlayers.has(k)) allPlayers.set(k, r.player);
+      if (r.team?.key && !allTeams.has(r.team.key)) allTeams.set(r.team.key, Stats.teamLabel(r.team.members));
     });
 
     const fillSelect = (id, entries, allLabel, current) => {
@@ -1655,6 +1722,14 @@ const Screens = {
       if (days && (now - new Date(r.date).getTime()) > days * 86400000) return false;
       if (playerFilter !== 'all' && !r.players.some(n => Stats.nameKey(n) === playerFilter)) return false;
       if (teamFilter !== 'all' && !r.teams.some(t => t.key === teamFilter)) return false;
+      return true;
+    });
+    const contractRecords = allContractRecords.filter(r => {
+      if (gameFilter !== 'all' && gameFilter !== 'fiveHundred') return false;
+      if (modeFilter !== 'all' && r.mode !== modeFilter) return false;
+      if (days && (now - new Date(r.date).getTime()) > days * 86400000) return false;
+      if (playerFilter !== 'all' && Stats.nameKey(r.player) !== playerFilter) return false;
+      if (teamFilter !== 'all' && r.team?.key !== teamFilter) return false;
       return true;
     });
 
@@ -1688,6 +1763,18 @@ const Screens = {
       detailMap.set(key, x);
     }));
 
+    const contractMap = new Map();
+    contractRecords.forEach(r => {
+      const key = Stats.nameKey(r.player);
+      const completedGames = playerMap.get(key)?.games || 0;
+      const x = contractMap.get(key) || { name:r.player, games:completedGames, contracts:0, success:0, failed:0 };
+      x.games = completedGames;
+      x.contracts++;
+      if (r.success) x.success++;
+      else x.failed++;
+      contractMap.set(key, x);
+    });
+
     const rankRows = (values) => [...values]
       .filter(x => x.games >= minGames)
       .sort((a, b) => {
@@ -1703,6 +1790,7 @@ const Screens = {
     const playersEl = document.getElementById('stats-player-results');
     const teamsEl = document.getElementById('stats-team-results');
     const detailEl = document.getElementById('stats-detail-results');
+    const contractsEl = document.getElementById('stats-contract-results');
     const summaryEl = document.getElementById('stats-summary');
     if (summaryEl) {
       const resetInfo = statsResetAt
@@ -1731,6 +1819,19 @@ const Screens = {
       detailEl.innerHTML = rows.length
         ? rows.map(x=>rowHtml(x, `<span class="stats-sub">${Utils.esc(x.game)} · ${x.mode === 'teams' ? 'Équipe' : 'Individuel'}</span>`)).join('')
         : `<div class="empty-state-text">${minGames ? `Aucun détail avec au moins ${minGames} parties` : 'Aucun détail'}</div>`;
+    }
+    if (contractsEl) {
+      const rows = [...contractMap.values()]
+        .filter(x => x.games >= minGames)
+        .sort((a,b) => {
+        const pctDiff = Stats.pct(b.success, b.contracts) - Stats.pct(a.success, a.contracts);
+        if (Math.abs(pctDiff) > 1e-9) return pctDiff;
+        if (b.contracts !== a.contracts) return b.contracts - a.contracts;
+        return a.name.localeCompare(b.name, 'fr-CA');
+      });
+      contractsEl.innerHTML = rows.length
+        ? rows.map(x => `<div class="stats-row"><div class="stats-main"><strong>${Utils.esc(x.name)}</strong><span class="stats-sub">${x.contracts} contrat(s) pris</span></div><div>${x.success}/${x.failed}</div><div class="stats-pct">${Stats.pct(x.success,x.contracts).toFixed(1)} %</div></div>`).join('')
+        : `<div class="empty-state-text">${minGames ? `Aucun joueur avec au moins ${minGames} parties et un contrat avec preneur identifié` : 'Aucun contrat avec preneur identifié pour ces filtres'}. Les anciennes donnes enregistrées avant la v2.14 ne peuvent pas être attribuées rétroactivement à un joueur.</div>`;
     }
   },
 
@@ -1841,9 +1942,10 @@ const Screens = {
         return `
           <div class="history-entry">
             <div class="history-header">
-              <span class="history-player">${Utils.esc(e.team)} · ${contractLabel}${openText}</span>
+              <span class="history-player">${Utils.esc(e.bidder || e.team)} · ${contractLabel}${openText}</span>
               <span class="history-time">${Utils.formatDate(e.timestamp)}</span>
             </div>
+            ${e.bidder ? `<div class="history-detail">Preneur : ${Utils.esc(e.bidder)} · équipe ${Utils.esc(e.team)}</div>` : ''}
             <div class="history-detail">${e.directAward ? '✅ Points accordés' : (e.success ? '✅ Contrat réussi' : '❌ Contrat chuté')} · ${awardedPoints} pts à ${Utils.esc(e.awardedTeam || e.team)}${ruleText}</div>
             <div class="history-detail">${Utils.esc(e.awardedTeam || e.team)} : ${e.oldValue} +${e.delta} → ${e.newValue}</div>
             ${e.seriesGameNumber ? `<div class="history-detail">Partie ${e.seriesGameNumber} de la série</div>` : ''}
@@ -2084,10 +2186,10 @@ const UI = {
         <div id="fh-modal-opponent-tricks-panel" style="display:none"></div>
       `
       : `
-        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat final, puis l'équipe qui a remporté les enchères. Pour une enchère ouverte, choisissez 7 O, 8 O ou 9 O : le pointage demeure 130, 230 ou 330 même après le choix de l'atout. La pénalité réduite d'une Partie et la pénalité de 500 points du Mulot Suprême sont appliquées automatiquement.</div>
+        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat final, puis le joueur qui a pris le contrat. Son équipe est déterminée automatiquement. Pour une enchère ouverte, choisissez 7 O, 8 O ou 9 O : le pointage demeure 130, 230 ou 330 même après le choix de l'atout. La pénalité réduite d'une Partie et la pénalité de 500 points du Mulot Suprême sont appliquées automatiquement.</div>
         ${this.fhContractTableHtml(true)}
-        <div class="card-title" style="margin-top:14px">Équipe qui a misé</div>
-        <div class="team-select-row" id="fh-modal-bidder-buttons"></div>
+        <div class="card-title" style="margin-top:14px">Joueur qui a pris le contrat</div>
+        <div class="fh-player-select-grid" id="fh-modal-bidder-buttons"></div>
         <div class="result-btns" style="margin-top:14px">
           <button class="btn btn-success" id="fh-modal-btn-team-win" onclick="UI.fhApplyResult(true)" disabled>✅ Mise gagnée</button>
           <button class="btn btn-danger" id="fh-modal-btn-team-lose" onclick="UI.fhApplyResult(false)" disabled>❌ Mise perdue</button>
@@ -2479,13 +2581,16 @@ const UI = {
   renderFhEntityButtons() {
     const game = State.currentGame;
     if (!game) return;
-    const list = game.mode === 'individual' ? game.players : game.teams;
+    const list = game.mode === 'individual'
+      ? game.players.map((p, i) => ({ name: p.name, selectionIdx: i, teamIdx: i % 2 }))
+      : Games.fiveHundred.ensureTableSetup(game).map((p, i) => ({ ...p, selectionIdx: i }));
     ['fh-bidder-buttons', 'fh-modal-bidder-buttons'].forEach((id) => {
       const wrap = document.getElementById(id);
       if (!wrap) return;
-      wrap.innerHTML = list.map((entity, i) => `
-        <button class="team-select-btn ${UI._selectedTeam === i ? `selected team-${i % 2}` : ''}"
-          onclick="UI.selectFhTeam(${i})">${Utils.esc(entity.name)}</button>
+      if (game.mode === 'teams') wrap.classList.add('fh-player-select-grid');
+      wrap.innerHTML = list.map((entity) => `
+        <button class="team-select-btn ${UI._selectedTeam === entity.selectionIdx ? `selected team-${entity.teamIdx % 2}` : ''}"
+          onclick="UI.selectFhTeam(${entity.selectionIdx})">${Utils.esc(entity.name)}</button>
       `).join('');
     });
   },
@@ -2635,16 +2740,20 @@ const UI = {
 
     const hint = document.getElementById('fh-team-result-hint');
     if (hint && game?.mode === 'teams' && UI._selectedContract) {
+      const seats = Games.fiveHundred.ensureTableSetup(game);
+      const bidder = Number.isInteger(UI._selectedTeam) ? seats[UI._selectedTeam] : null;
+      const bidderTeam = bidder ? game.teams?.[bidder.teamIdx] : null;
+      const bidderPrefix = bidder ? `<strong>${Utils.esc(bidder.name)}</strong> · ${Utils.esc(bidderTeam?.name || '')}<br>` : '';
       const full = Games.fiveHundred.contractPoints(game, UI._selectedContract);
       const failed = Games.fiveHundred.failedTeamContractPoints(game, UI._selectedContract);
       if (Games.fiveHundred.isAnyMulotContract(UI._selectedContract)) {
-        hint.innerHTML = '';
+        hint.innerHTML = bidderPrefix;
       } else if (Games.fiveHundred.isOpenContract(UI._selectedContract)) {
-        hint.innerHTML = `<strong>${Games.fiveHundred.contractLabel(UI._selectedContract)} :</strong> réussite +${full}; échec +${failed} aux adversaires. L'atout choisi après le minou ne change pas cette valeur.`;
+        hint.innerHTML = `${bidderPrefix}<strong>${Games.fiveHundred.contractLabel(UI._selectedContract)} :</strong> réussite +${full}; échec +${failed} aux adversaires. L'atout choisi après le minou ne change pas cette valeur.`;
       } else if (Games.fiveHundred.isGameContract(UI._selectedContract)) {
-        hint.innerHTML = `<strong>Partie :</strong> réussite +${full}; échec +${failed} aux adversaires (50 %).`;
+        hint.innerHTML = `${bidderPrefix}<strong>Partie :</strong> réussite +${full}; échec +${failed} aux adversaires (50 %).`;
       } else {
-        hint.innerHTML = `Réussite +${full}; échec +${failed} aux adversaires.`;
+        hint.innerHTML = `${bidderPrefix}Réussite +${full}; échec +${failed} aux adversaires.`;
       }
     }
   },
@@ -2654,9 +2763,14 @@ const UI = {
     this.unlockFhSound();
     const game = State.currentGame;
     if (game.mode === 'individual') return;
+    const seats = Games.fiveHundred.ensureTableSetup(game);
+    const bidderSeatIdx = UI._selectedTeam;
+    const bidder = seats[bidderSeatIdx];
+    if (!bidder || !Number.isInteger(bidder.teamIdx)) return;
+    const biddingTeamIdx = bidder.teamIdx;
     const contract = UI._selectedContract;
-    const biddingTeamName = game.teams[UI._selectedTeam].name;
-    const result = Games.fiveHundred.applyContract(game, UI._selectedTeam, contract, success);
+    const biddingTeamName = game.teams[biddingTeamIdx].name;
+    const result = Games.fiveHundred.applyContract(game, biddingTeamIdx, contract, success, bidderSeatIdx);
     await DB.save('games', game);
 
     const next = result.nextBidder;
@@ -2666,8 +2780,8 @@ const UI = {
       isSeriesFinished
         ? `🏆 Série terminée : ${result.gameCompletion.seriesWinner.name} gagne ${game.series.wins[0]}-${game.series.wins[1]}`
         : success
-          ? `✅ ${biddingTeamName} +${result.awardedPoints} pts · Prochaine mise : ${next.name}`
-          : `❌ ${Games.fiveHundred.isGameContract(contract) ? 'Partie' : Games.fiveHundred.contractLabel(contract)} chuté : +${result.awardedPoints} pts à ${awarded} · Prochaine mise : ${next.name}`,
+          ? `✅ ${bidder.name} (${biddingTeamName}) +${result.awardedPoints} pts · Prochaine mise : ${next.name}`
+          : `❌ ${bidder.name} chute ${Games.fiveHundred.isGameContract(contract) ? 'la Partie' : Games.fiveHundred.contractLabel(contract)} : +${result.awardedPoints} pts à ${awarded} · Prochaine mise : ${next.name}`,
       isSeriesFinished ? 'success' : (success ? 'success' : 'info'),
       5000
     );
@@ -3427,6 +3541,7 @@ function buildScreenHTML() {
       <div class="card"><div class="card-title">Résumé</div><div id="stats-summary" class="stats-summary"></div></div>
       <div class="card"><div class="card-title">Victoires par joueur</div><div class="stats-header"><span>Joueur</span><span>V/G</span><span>%</span></div><div id="stats-player-results" class="stats-list"></div></div>
       <div class="card"><div class="card-title">Victoires par équipe</div><div class="stats-header"><span>Équipe</span><span>V/G</span><span>%</span></div><div id="stats-team-results" class="stats-list"></div></div>
+      <div class="card"><div class="card-title">Contrats 500 par joueur</div><div class="setting-sub" style="margin-bottom:10px">Mesure les contrats pris par chaque joueur. R/P = réussis / perdus.</div><div class="stats-header"><span>Joueur</span><span>R/P</span><span>Réussite</span></div><div id="stats-contract-results" class="stats-list"></div></div>
       <div class="card"><div class="card-title">Détail joueur par jeu</div><div class="stats-header"><span>Joueur / jeu</span><span>V/G</span><span>%</span></div><div id="stats-detail-results" class="stats-list"></div></div>
 
       <div class="card stats-reset-card">
