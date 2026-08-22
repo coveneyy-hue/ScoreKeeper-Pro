@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.16 : correction création 500 et rotation équilibrée des équipes par défaut
+ * v2.17 : statistiques avancées des contrats 500
  */
 
-const CACHE_NAME = 'scorekeeper-v2.16';
+const CACHE_NAME = 'scorekeeper-v2.17';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.16',
-  './app.js?v=2.16',
+  './style.css?v=2.17',
+  './app.js?v=2.17',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

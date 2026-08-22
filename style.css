@@ -1761,3 +1761,125 @@ body {
   .fh-contract-grid.with-open .contract-btn small,
   .fh-contract-grid.with-open .fh-contract-value-cell strong { font-size: 11px; }
 }
+
+/* ── ScoreKeeper Pro 2.17 : statistiques avancées des contrats 500 ── */
+.stats-advanced-card { overflow: visible; }
+.stats-advanced-grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:9px;
+  margin-bottom:18px;
+}
+.stats-kpi {
+  background:var(--bg-elevated);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:11px 12px;
+  min-width:0;
+}
+.stats-kpi span {
+  display:block;
+  color:var(--text-secondary);
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.55px;
+  margin-bottom:4px;
+}
+.stats-kpi strong {
+  display:block;
+  color:var(--text-primary);
+  font-size:15px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.stats-kpi small {
+  display:block;
+  color:var(--accent-2);
+  font-size:10px;
+  line-height:1.35;
+  margin-top:3px;
+}
+.stats-advanced-section + .stats-advanced-section { margin-top:20px; }
+.stats-advanced-title { font-size:13px; font-weight:800; margin-bottom:7px; }
+.stats-advanced-note { color:var(--text-secondary); font-size:10px; line-height:1.4; margin:-2px 0 8px; }
+.stats-advanced-table { display:flex; flex-direction:column; gap:6px; }
+.stats-advanced-head,
+.stats-advanced-row {
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) 46px 58px 68px;
+  gap:6px;
+  align-items:center;
+}
+.stats-advanced-head {
+  padding:0 9px 2px;
+  color:var(--text-secondary);
+  font-size:9px;
+  text-transform:uppercase;
+  letter-spacing:.45px;
+}
+.stats-advanced-row {
+  background:var(--bg-elevated);
+  border-radius:var(--radius-sm);
+  padding:9px 10px;
+  font-size:12px;
+}
+.stats-advanced-row > div:not(:first-child) { text-align:center; font-variant-numeric:tabular-nums; }
+.stats-advanced-row > div:first-child { min-width:0; display:flex; flex-direction:column; }
+.stats-advanced-row strong { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.stats-advanced-row small { color:var(--text-secondary); font-size:9px; margin-top:2px; }
+.stats-contract-detail {
+  background:var(--bg-elevated);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  overflow:hidden;
+}
+.stats-contract-detail + .stats-contract-detail { margin-top:7px; }
+.stats-contract-detail summary {
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 12px;
+  user-select:none;
+}
+.stats-contract-detail summary::-webkit-details-marker { display:none; }
+.stats-contract-detail summary > span:first-child { min-width:0; display:flex; flex-direction:column; }
+.stats-contract-detail summary strong { font-size:13px; }
+.stats-contract-detail summary small { color:var(--text-secondary); font-size:9px; margin-top:2px; }
+.stats-contract-count {
+  min-width:28px;
+  height:28px;
+  padding:0 7px;
+  border-radius:999px;
+  background:var(--bg-card);
+  color:var(--accent-2);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  font-weight:800;
+}
+.stats-contract-players { padding:0 12px 9px; color:var(--text-secondary); font-size:10px; line-height:1.4; }
+.stats-contract-events { border-top:1px solid var(--border); }
+.stats-contract-events > div {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(72px,.8fr) 52px;
+  gap:8px;
+  align-items:center;
+  padding:8px 12px;
+  font-size:10px;
+}
+.stats-contract-events > div + div { border-top:1px solid rgba(255,255,255,.045); }
+.stats-contract-events span { color:var(--text-secondary); }
+.stats-contract-events strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stats-contract-events em { font-style:normal; font-weight:800; text-align:right; }
+.stats-contract-events em.is-success { color:var(--success); }
+.stats-contract-events em.is-fail { color:var(--danger); }
+@media (max-width:430px) {
+  .stats-advanced-grid { grid-template-columns:1fr 1fr; }
+  .stats-advanced-head,.stats-advanced-row { grid-template-columns:minmax(0,1.2fr) 38px 50px 60px; font-size:11px; }
+  .stats-contract-events > div { grid-template-columns:minmax(0,1fr) 72px 48px; padding:8px 9px; }
+}
