@@ -2002,3 +2002,175 @@ body {
   .stats-profile-grid { grid-template-columns:1fr 1fr; }
 }
 \n\n/* ── ScoreKeeper Pro 2.19 : historique évolutif des statistiques ── */\n.stats-period-grid {\n  display:grid;\n  grid-template-columns:repeat(3,minmax(0,1fr));\n  gap:7px;\n  padding:0 10px 10px;\n}\n.stats-period-card {\n  background:var(--bg-card);\n  border:1px solid var(--border);\n  border-radius:var(--radius-sm);\n  padding:8px 9px;\n  min-width:0;\n}\n.stats-period-card span,\n.stats-trend-records span {\n  display:block;\n  color:var(--text-secondary);\n  font-size:8px;\n  text-transform:uppercase;\n  letter-spacing:.4px;\n}\n.stats-period-card strong { display:block; margin-top:2px; color:var(--accent-2); font-size:13px; }\n.stats-period-card small { display:block; margin-top:2px; color:var(--text-secondary); font-size:8px; line-height:1.35; }\n.stats-evolution-detail { margin:0 10px 10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }\n.stats-evolution-detail > summary { list-style:none; cursor:pointer; padding:9px 10px; font-size:10px; font-weight:800; color:var(--accent-2); }\n.stats-evolution-detail > summary::-webkit-details-marker { display:none; }\n.stats-trend-records { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; padding:0 9px 9px; }\n.stats-trend-records > div { background:var(--bg-elevated); border-radius:var(--radius-sm); padding:7px 8px; min-width:0; }\n.stats-trend-records strong { display:block; font-size:11px; margin-top:2px; }\n.stats-trend-records small { display:block; color:var(--text-secondary); font-size:8px; margin-top:2px; }\n.stats-evolution-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; padding:0 9px 9px; }\n.stats-evolution-chart { background:var(--bg-elevated); border-radius:var(--radius-sm); padding:8px; min-width:0; }\n.stats-evolution-chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; margin-bottom:3px; }\n.stats-evolution-chart-head span { color:var(--text-secondary); font-size:8px; text-transform:uppercase; letter-spacing:.35px; }\n.stats-evolution-chart-head strong { font-size:10px; color:var(--text-primary); white-space:nowrap; }\n.stats-evolution-chart small { display:block; margin-top:2px; color:var(--text-secondary); font-size:7px; }\n.stats-sparkline { width:100%; height:54px; display:block; color:var(--accent-2); overflow:visible; }\n.stats-spark-base { stroke:var(--border); stroke-width:1; }\n.stats-spark-line { fill:none; stroke:currentColor; stroke-width:2.2; vector-effect:non-scaling-stroke; }\n.stats-spark-dot { fill:currentColor; }\n.stats-spark-empty { height:54px; display:flex; align-items:center; justify-content:center; color:var(--text-secondary); font-size:8px; }\n@media (max-width:430px) {\n  .stats-period-grid { grid-template-columns:1fr; }\n  .stats-trend-records { grid-template-columns:1fr 1fr 1fr; }\n  .stats-evolution-grid { grid-template-columns:1fr; }\n}\n
+/* ── ScoreKeeper Pro 2.21 : historique détaillé des parties 500 ── */
+.stats-game-history-note {
+  color:var(--text-secondary);
+  font-size:10px;
+  line-height:1.5;
+  margin-bottom:9px;
+}
+.stats-game-detail {
+  background:var(--bg-elevated);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+  margin-bottom:9px;
+}
+.stats-game-detail > summary {
+  list-style:none;
+  cursor:pointer;
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);
+  gap:10px;
+  align-items:center;
+  padding:11px 12px;
+}
+.stats-game-detail > summary::-webkit-details-marker { display:none; }
+.stats-game-detail[open] > summary { border-bottom:1px solid var(--border); }
+.stats-game-summary-main,
+.stats-game-summary-winner { min-width:0; }
+.stats-game-summary-main strong,
+.stats-game-summary-winner span { display:block; font-size:11px; font-weight:800; }
+.stats-game-summary-main small,
+.stats-game-summary-winner small { display:block; color:var(--text-secondary); font-size:8px; line-height:1.4; margin-top:2px; }
+.stats-game-summary-winner { text-align:right; }
+.stats-game-summary-winner span { color:var(--warning); }
+.stats-game-kpis {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+  padding:10px;
+}
+.stats-game-kpis > div {
+  background:var(--bg-card);
+  border-radius:var(--radius-sm);
+  padding:8px 9px;
+  min-width:0;
+}
+.stats-game-kpis span,
+.stats-game-team-row small,
+.stats-game-contract-value small,
+.stats-game-contract-result small {
+  display:block;
+  color:var(--text-secondary);
+  font-size:8px;
+}
+.stats-game-kpis strong { display:block; margin-top:2px; font-size:11px; }
+.stats-game-kpis small { display:block; color:var(--text-secondary); margin-top:2px; font-size:8px; line-height:1.35; }
+.stats-game-subtitle {
+  padding:10px 10px 5px;
+  color:var(--accent-2);
+  font-size:9px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.45px;
+}
+.stats-game-team-list { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:0 10px 10px; }
+.stats-game-team-row {
+  display:grid;
+  grid-template-columns:minmax(0,1.4fr) repeat(4,minmax(44px,.6fr));
+  gap:5px;
+  align-items:center;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:8px;
+  font-size:9px;
+}
+.stats-game-team-row.is-winner { border-color:var(--warning); }
+.stats-game-team-row strong { display:block; font-size:9px; }
+.stats-game-player-table { margin:0 10px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }
+.stats-game-player-head,
+.stats-game-player-row {
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) 36px 42px 48px 48px 42px;
+  gap:5px;
+  align-items:center;
+  padding:7px 8px;
+  font-size:9px;
+}
+.stats-game-player-head { background:var(--bg-card); color:var(--text-secondary); font-weight:800; }
+.stats-game-player-row { border-top:1px solid var(--border); }
+.stats-game-player-row strong { display:block; font-size:9px; }
+.stats-game-player-row small { display:block; color:var(--text-secondary); font-size:7px; line-height:1.35; }
+.stats-game-player-extra { grid-column:1 / -1; }
+.stats-game-contract-list { padding:0 10px 10px; display:flex; flex-direction:column; gap:6px; }
+.stats-game-contract-row {
+  display:grid;
+  grid-template-columns:24px minmax(0,1.65fr) 48px 75px 48px;
+  gap:6px;
+  align-items:center;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:7px 8px;
+  font-size:9px;
+}
+.stats-game-contract-num {
+  width:20px; height:20px; border-radius:50%; background:var(--bg-elevated);
+  display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:800; color:var(--accent);
+}
+.stats-game-contract-main { min-width:0; }
+.stats-game-contract-main strong { display:block; font-size:9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stats-game-contract-main small { display:block; color:var(--text-secondary); font-size:7px; line-height:1.35; margin-top:2px; }
+.stats-game-contract-value strong,
+.stats-game-contract-result strong { display:block; font-size:9px; }
+.stats-game-contract-result.is-success strong { color:var(--success); }
+.stats-game-contract-result.is-fail strong { color:var(--danger); }
+.stats-game-contract-net { text-align:right; font-weight:800; font-size:10px; }
+@media (max-width:430px) {
+  .stats-game-detail > summary { grid-template-columns:1fr; gap:5px; }
+  .stats-game-summary-winner { text-align:left; }
+  .stats-game-kpis { grid-template-columns:1fr 1fr; }
+  .stats-game-team-list { grid-template-columns:1fr; }
+  .stats-game-team-row { grid-template-columns:minmax(0,1.25fr) repeat(4,minmax(38px,.55fr)); font-size:8px; }
+  .stats-game-player-head,
+  .stats-game-player-row { grid-template-columns:minmax(0,1.25fr) 30px 36px 42px 42px 36px; gap:3px; padding:6px; font-size:8px; }
+  .stats-game-contract-row { grid-template-columns:20px minmax(0,1fr) 42px 66px 42px; gap:4px; padding:6px; }
+}
+
+/* ── ScoreKeeper Pro 2.21 : classement principal par impact net ── */
+.stats-impact-ranking-card { border-color:rgba(255,192,97,.24); }
+.stats-impact-ranking-note {
+  color:var(--text-secondary);
+  font-size:10px;
+  line-height:1.45;
+  margin-bottom:10px;
+}
+.stats-impact-ranking-list { display:flex; flex-direction:column; gap:7px; }
+.stats-impact-rank-row {
+  display:grid;
+  grid-template-columns:34px minmax(0,1fr) 56px 80px;
+  gap:8px;
+  align-items:center;
+  padding:11px 12px;
+  border-radius:var(--radius-sm);
+  background:var(--bg-elevated);
+  font-variant-numeric:tabular-nums;
+}
+.stats-impact-rank-row.is-leader {
+  box-shadow:inset 0 0 0 1px rgba(255,192,97,.42);
+  background:linear-gradient(135deg,rgba(255,192,97,.09),var(--bg-elevated));
+}
+.stats-impact-rank-pos {
+  font-size:16px;
+  font-weight:900;
+  text-align:center;
+  color:var(--text-secondary);
+}
+.stats-impact-rank-row.is-leader .stats-impact-rank-pos { font-size:20px; }
+.stats-impact-rank-player { min-width:0; display:flex; flex-direction:column; }
+.stats-impact-rank-player strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+.stats-impact-rank-player small,
+.stats-impact-rank-contracts small,
+.stats-impact-rank-net small { color:var(--text-secondary); font-size:9px; margin-top:2px; }
+.stats-impact-rank-contracts,
+.stats-impact-rank-net { display:flex; flex-direction:column; text-align:right; }
+.stats-impact-rank-contracts strong { font-size:12px; color:var(--text-primary); }
+.stats-impact-rank-net strong { font-size:18px; line-height:1.05; }
+@media (max-width:430px) {
+  .stats-impact-rank-row { grid-template-columns:28px minmax(0,1fr) 46px 66px; gap:6px; padding:10px 9px; }
+  .stats-impact-rank-player strong { font-size:13px; }
+  .stats-impact-rank-player small { font-size:8px; }
+  .stats-impact-rank-net strong { font-size:16px; }
+}

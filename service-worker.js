@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.19 : historique évolutif des statistiques 500
+ * v2.21 : classement principal des joueurs par impact net
  */
 
-const CACHE_NAME = 'scorekeeper-v2.19';
+const CACHE_NAME = 'scorekeeper-v2.21';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.19',
-  './app.js?v=2.19',
+  './style.css?v=2.21',
+  './app.js?v=2.21',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

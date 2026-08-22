@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.19';
+const APP_VERSION = '2.21';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1904,10 +1904,63 @@ const Screens = {
     const isLeader = (x, bestPct) => bestPct !== null && Math.abs(Stats.pct(x.wins, x.games) - bestPct) < 1e-9;
     const rowHtml = (x, extra='', trophy=false) => `<div class="stats-row ${trophy ? 'stats-leader' : ''}"><div class="stats-main"><div class="stats-name-line">${trophy ? '<span class="stats-trophy" title="Meilleur pourcentage de victoires" aria-label="Meilleur pourcentage de victoires">🏆</span>' : ''}<strong>${Utils.esc(x.name)}</strong></div>${extra}</div><div>${x.wins}/${x.games}</div><div class="stats-pct">${Stats.pct(x.wins,x.games).toFixed(1)} %</div></div>`;
 
+    const impactRankingEl = document.getElementById('stats-impact-ranking');
     const playersEl = document.getElementById('stats-player-results');
     const teamsEl = document.getElementById('stats-team-results');
     const advancedEl = document.getElementById('stats-advanced-results');
+    const gameHistoryEl = document.getElementById('stats-game-history-results');
     const summaryEl = document.getElementById('stats-summary');
+
+    if (impactRankingEl) {
+      const rankingAvailable = (gameFilter === 'all' || gameFilter === 'fiveHundred') && modeFilter !== 'individual';
+      if (!rankingAvailable) {
+        impactRankingEl.innerHTML = `<div class="empty-state-text">Le classement par impact net est disponible pour le 500 en équipes.</div>`;
+      } else {
+        const impactPlayers = new Map();
+        const rankingGames = records.filter(r => r.gameType === 'fiveHundred' && r.mode === 'teams');
+
+        rankingGames.forEach(r => {
+          let names = r.players || [];
+          if (teamFilter !== 'all') {
+            const selectedTeam = (r.teams || []).find(t => t.key === teamFilter);
+            names = selectedTeam?.members || [];
+          }
+          names.forEach(name => {
+            const key = Stats.nameKey(name);
+            if (playerFilter !== 'all' && key !== playerFilter) return;
+            const x = impactPlayers.get(key) || { name, games:0, wins:0, netImpact:0, contracts:0, success:0, failed:0 };
+            x.games++;
+            if ((r.winnerPlayers || []).some(w => Stats.nameKey(w) === key)) x.wins++;
+            impactPlayers.set(key, x);
+          });
+        });
+
+        baseContractRecords.forEach(r => {
+          const key = Stats.nameKey(r.player);
+          if (playerFilter !== 'all' && key !== playerFilter) return;
+          const x = impactPlayers.get(key);
+          if (!x) return;
+          x.contracts++;
+          if (r.success) x.success++; else x.failed++;
+          x.netImpact += Number(r.netImpact) || 0;
+        });
+
+        const impactRows = [...impactPlayers.values()]
+          .filter(x => x.games >= minGames)
+          .sort((a,b) => b.netImpact-a.netImpact || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games) || b.games-a.games || a.name.localeCompare(b.name,'fr-CA'));
+        const bestNetImpact = impactRows.length ? impactRows[0].netImpact : null;
+        const rankingRowsHtml = impactRows.map((x, idx) => {
+          const trophy = bestNetImpact !== null && Math.abs(x.netImpact - bestNetImpact) < 1e-9;
+          const rankLabel = trophy ? '🏆' : `${idx + 1}`;
+          const netClass = x.netImpact >= 0 ? 'stats-net-positive' : 'stats-net-negative';
+          return `<div class="stats-impact-rank-row ${trophy ? 'is-leader' : ''}"><div class="stats-impact-rank-pos" title="${trophy ? 'Meilleur impact net' : `Rang ${idx+1}`}">${rankLabel}</div><div class="stats-impact-rank-player"><strong>${Utils.esc(x.name)}</strong><small>${x.games} partie(s) · ${x.wins} victoire(s) · ${Stats.pct(x.wins,x.games).toFixed(1)} % V</small></div><div class="stats-impact-rank-contracts"><strong>${x.success}/${x.failed}</strong><small>R/P</small></div><div class="stats-impact-rank-net ${netClass}"><strong>${Utils.signed(x.netImpact)}</strong><small>impact net</small></div></div>`;
+        }).join('');
+        const identifiedContracts = baseContractRecords.filter(r => impactPlayers.has(Stats.nameKey(r.player))).length;
+        impactRankingEl.innerHTML = impactRows.length
+          ? `<div class="stats-impact-ranking-note">Classement principal du 500 selon l'impact net des contrats. En cas d'égalité, le % de victoires puis le nombre de parties départagent l'ordre. ${identifiedContracts} contrat(s) avec preneur identifié dans les filtres actuels.</div><div class="stats-impact-ranking-list">${rankingRowsHtml}</div>`
+          : `<div class="empty-state-text">${minGames ? `Aucun joueur avec au moins ${minGames} parties de 500 en équipes` : 'Aucune donnée de 500 en équipes'}</div>`;
+      }
+    }
 
     if (summaryEl) {
       const resetInfo = statsResetAt
@@ -1917,9 +1970,8 @@ const Screens = {
     }
     if (playersEl) {
       const rows = rankRows(playerMap.values());
-      const bestPct = leaderPct(rows);
       playersEl.innerHTML = rows.length
-        ? rows.map(x => rowHtml(x, '', isLeader(x, bestPct))).join('')
+        ? rows.map(x => rowHtml(x)).join('')
         : `<div class="empty-state-text">${minGames ? `Aucun joueur avec au moins ${minGames} parties` : 'Aucune statistique individuelle'}</div>`;
     }
     if (teamsEl) {
@@ -2336,6 +2388,115 @@ const Screens = {
           <div class="stats-advanced-section"><div class="stats-advanced-title">Profils joueurs et indice d’impact</div><div class="stats-advanced-note">Ouvre un joueur pour voir partenaires, adversaires, séries, contrats, position et la formule complète de son indice.</div>${profilesHtml}</div>
           <div class="stats-advanced-section"><div class="stats-advanced-title">Records</div><div class="stats-record-grid">${recordsHtml}</div></div>
           <div class="stats-advanced-section"><div class="stats-advanced-title">Fréquence et historique par contrat</div><div class="stats-advanced-note">Ouvre un contrat pour voir qui l'a tenté, à quelle date et s'il a été réussi.</div>${detailsHtml}</div>`;
+      }
+    }
+
+    // Historique détaillé des parties 500. Cette section est indépendante du minimum
+    // de parties : chaque partie terminée correspondant aux filtres peut être ouverte.
+    if (gameHistoryEl) {
+      const historyAvailable = (gameFilter === 'all' || gameFilter === 'fiveHundred') && modeFilter !== 'individual';
+      const historyGames = records
+        .filter(r => r.gameType === 'fiveHundred' && r.mode === 'teams')
+        .slice()
+        .sort((a,b) => new Date(b.date) - new Date(a.date));
+      const historyContracts = allContractRecords
+        .filter(r => r.mode === 'teams' && inPeriod(r));
+      const historyGameKey = (r) => `${r.sourceGameId || ''}|${r.seriesGameNumber || 1}`;
+      const historyContractsByGame = new Map();
+      historyContracts.forEach(r => {
+        const k = historyGameKey(r);
+        if (!historyContractsByGame.has(k)) historyContractsByGame.set(k, []);
+        historyContractsByGame.get(k).push(r);
+      });
+      historyContractsByGame.forEach(arr => arr.sort((a,b) => new Date(a.date) - new Date(b.date)));
+
+      const teamForPlayer = (g, name) => (g.teams || []).find(t => (t.members || []).some(m => Stats.nameKey(m) === Stats.nameKey(name))) || null;
+      const winnerTeam = (g) => (g.teams || []).find(t => t.key === g.winnerTeamKey) || (Number.isInteger(g.winnerTeamIdx) ? g.teams?.[g.winnerTeamIdx] : null) || null;
+      const scoreText = (g) => (g.teams || []).map((t,i) => `${Stats.teamLabel(t.members || [])} ${Number(g.finalScores?.[i]) || 0}`).join(' · ');
+
+      const renderGame = (g) => {
+        const gc = historyContractsByGame.get(historyGameKey(g)) || [];
+        const winner = winnerTeam(g);
+        const successCount = gc.filter(c => c.success).length;
+        const failedCount = gc.length - successCount;
+        const avgValue = gc.length ? gc.reduce((sum,c) => sum + (Number(c.contractPoints) || 0), 0) / gc.length : 0;
+        const biggest = gc.slice().sort((a,b)=>(Number(b.contractPoints)||0)-(Number(a.contractPoints)||0))[0] || null;
+        const last = gc[gc.length - 1] || null;
+
+        const playerRows = (g.players || []).map(name => {
+          const pk = Stats.nameKey(name);
+          const own = gc.filter(c => Stats.nameKey(c.player) === pk);
+          const successes = own.filter(c => c.success).length;
+          const failures = own.length - successes;
+          const successPoints = own.filter(c => c.success).reduce((sum,c)=>sum+(Number(c.contractPoints)||0),0);
+          const failedCost = own.filter(c => !c.success).reduce((sum,c)=>sum+Math.abs(Number(c.awardedPoints)||0),0);
+          const net = own.reduce((sum,c)=>sum+(Number(c.netImpact)||0),0);
+          const team = teamForPlayer(g,name);
+          const won = (g.winnerPlayers || []).some(w => Stats.nameKey(w) === pk);
+          const finisher = !!(last?.success && Stats.nameKey(last.player) === pk && won);
+          const bid = { contracts:own.length, success:successes, successPoints, failedCost };
+          const imp = { games:1, wins:won?1:0, winsWithSuccess:won && successes>0 ? 1 : 0, decisiveWins:finisher ? 1 : 0 };
+          const idx = Stats.impactIndex(bid, imp);
+          const positions = own.map(c=>Number(c.bidPosition)).filter(Number.isInteger);
+          const posText = positions.length ? positions.map(pos=>`${pos}${pos===1?'er':'e'}`).join(', ') : 'N/D';
+          return `<div class="stats-game-player-row">
+            <div><strong>${Utils.esc(name)}</strong><small>${Utils.esc(team ? Stats.teamLabel(team.members || []) : 'Équipe N/D')}${won ? ' · gagnant' : ''}</small></div>
+            <div>${own.length}</div><div>${successes}/${failures}</div><div>${Stats.pct(successes,own.length).toFixed(1)} %</div>
+            <div class="${net >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(net)}</div>
+            <div>${idx.score.toFixed(1)}</div>
+            <div class="stats-game-player-extra"><small>Positions : ${Utils.esc(posText)}${finisher ? ' · finisseur' : ''}</small></div>
+          </div>`;
+        }).join('');
+
+        const teamRows = (g.teams || []).map((t,i) => {
+          const own = gc.filter(c => c.team?.key === t.key);
+          const successes = own.filter(c=>c.success).length;
+          const net = own.reduce((sum,c)=>sum+(Number(c.netImpact)||0),0);
+          const won = t.key === g.winnerTeamKey || i === g.winnerTeamIdx;
+          return `<div class="stats-game-team-row ${won ? 'is-winner' : ''}"><div><strong>${Utils.esc(Stats.teamLabel(t.members || []))}</strong><small>${won ? 'Gagnants' : 'Adversaires'}</small></div><div><strong>${Number(g.finalScores?.[i]) || 0}</strong><small>score final</small></div><div><strong>${own.length}</strong><small>contrats</small></div><div><strong>${successes}/${own.length-successes}</strong><small>R/P</small></div><div><strong class="${net >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(net)}</strong><small>impact net</small></div></div>`;
+        }).join('');
+
+        const contractRows = gc.length ? gc.map((c,idx) => {
+          const awardedTeam = Number.isInteger(c.awardedTeamIdx) ? g.teams?.[c.awardedTeamIdx] : null;
+          const teamLabel = awardedTeam ? Stats.teamLabel(awardedTeam.members || []) : 'N/D';
+          const pos = Number(c.bidPosition);
+          const posLabel = Number.isInteger(pos) ? `${pos}${pos===1?'er':'e'} à parler` : 'position N/D';
+          return `<div class="stats-game-contract-row">
+            <div class="stats-game-contract-num">${idx+1}</div>
+            <div class="stats-game-contract-main"><strong>${Utils.esc(c.player || 'Preneur N/D')} · ${Utils.esc(Stats.contractDisplayLabel(c.contract))}</strong><small>${Utils.esc(Utils.formatDate(c.date))} · ${Utils.esc(posLabel)}${c.openingBidder ? ` · ouvre : ${Utils.esc(c.openingBidder)}` : ''}</small></div>
+            <div class="stats-game-contract-value"><strong>${Number(c.contractPoints)||0}</strong><small>valeur</small></div>
+            <div class="stats-game-contract-result ${c.success ? 'is-success' : 'is-fail'}"><strong>${c.success ? 'Réussi' : 'Perdu'}</strong><small>+${Number(c.awardedPoints)||0} à ${Utils.esc(teamLabel)}</small></div>
+            <div class="stats-game-contract-net ${Number(c.netImpact)>=0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(Number(c.netImpact)||0)}</div>
+          </div>`;
+        }).join('') : `<div class="empty-state-text">Aucun contrat avec preneur identifié pour cette partie.</div>`;
+
+        const seriesLabel = g.seriesGameNumber ? `Partie ${g.seriesGameNumber}` : 'Partie';
+        return `<details class="stats-game-detail">
+          <summary>
+            <div class="stats-game-summary-main"><strong>${Utils.esc(Utils.formatDate(g.date))}</strong><small>${Utils.esc(seriesLabel)} · ${Utils.esc(scoreText(g))}</small></div>
+            <div class="stats-game-summary-winner"><span>🏆 ${Utils.esc(winner ? Stats.teamLabel(winner.members || []) : 'Gagnant N/D')}</span><small>${gc.length} contrat(s) · ${Stats.pct(successCount,gc.length).toFixed(1)} % réussis</small></div>
+          </summary>
+          <div class="stats-game-kpis">
+            <div><span>Contrats</span><strong>${gc.length}</strong><small>${successCount} R · ${failedCount} P</small></div>
+            <div><span>Réussite</span><strong>${Stats.pct(successCount,gc.length).toFixed(1)} %</strong><small>tous preneurs</small></div>
+            <div><span>Valeur moyenne</span><strong>${Math.round(avgValue)} pts</strong><small>contrats tentés</small></div>
+            <div><span>Plus gros contrat</span><strong>${biggest ? Utils.esc(Stats.contractDisplayLabel(biggest.contract)) : 'N/D'}</strong><small>${biggest ? `${Number(biggest.contractPoints)||0} pts · ${Utils.esc(biggest.player)}` : ''}</small></div>
+            <div><span>Durée</span><strong>${Number(g.durationMs)>0 ? Utils.formatDuration(g.durationMs) : 'N/D'}</strong><small>${Utils.esc(seriesLabel)}</small></div>
+            <div><span>Score final</span><strong>${Utils.esc((g.finalScores || []).map(n=>Number(n)||0).join(' - '))}</strong><small>${winner ? `victoire ${Utils.esc(Stats.teamLabel(winner.members || []))}` : ''}</small></div>
+          </div>
+          <div class="stats-game-subtitle">Équipes</div><div class="stats-game-team-list">${teamRows}</div>
+          <div class="stats-game-subtitle">Joueurs</div>
+          <div class="stats-game-player-table"><div class="stats-game-player-head"><span>Joueur</span><span>Pris</span><span>R/P</span><span>%</span><span>Net</span><span>Impact</span></div>${playerRows}</div>
+          <div class="stats-game-subtitle">Tous les contrats, dans l'ordre</div><div class="stats-game-contract-list">${contractRows}</div>
+        </details>`;
+      };
+
+      if (!historyAvailable) {
+        gameHistoryEl.innerHTML = `<div class="empty-state-text">L'historique détaillé est disponible pour le 500 en équipes.</div>`;
+      } else if (!historyGames.length) {
+        gameHistoryEl.innerHTML = `<div class="empty-state-text">Aucune partie de 500 en équipes ne correspond aux filtres.</div>`;
+      } else {
+        gameHistoryEl.innerHTML = `<div class="stats-game-history-note">${historyGames.length} partie(s). Ouvre une partie pour voir ses équipes, les 4 joueurs, les statistiques propres à cette partie et tous les contrats dans l'ordre.</div>${historyGames.map(renderGame).join('')}`;
       }
     }
   },
@@ -4084,6 +4245,11 @@ function buildScreenHTML() {
         </div>
       </div>
 
+      <div class="card stats-impact-ranking-card">
+        <div class="card-title">🏆 Classement des joueurs · Impact net</div>
+        <div id="stats-impact-ranking"></div>
+      </div>
+
       <div class="card"><div class="card-title">Résumé</div><div id="stats-summary" class="stats-summary"></div></div>
       <div class="card"><div class="card-title">Victoires par joueur</div><div class="stats-header"><span>Joueur</span><span>V/G</span><span>%</span></div><div id="stats-player-results" class="stats-list"></div></div>
       <div class="card"><div class="card-title">Victoires par équipe</div><div class="stats-header"><span>Équipe</span><span>V/G</span><span>%</span></div><div id="stats-team-results" class="stats-list"></div></div>
@@ -4091,6 +4257,12 @@ function buildScreenHTML() {
         <div class="card-title">Statistiques avancées 500</div>
         <div class="setting-sub" style="margin-bottom:12px">Analyse les contrats réellement pris, l'impact, les partenariats et l'évolution carrière / 10 dernières / 5 dernières.</div>
         <div id="stats-advanced-results"></div>
+      </div>
+
+      <div class="card stats-game-history-card">
+        <div class="card-title">Historique détaillé des parties 500</div>
+        <div class="setting-sub" style="margin-bottom:12px">Liste toutes les parties correspondant aux filtres. Ouvre une partie pour consulter ses statistiques complètes et chacun de ses contrats.</div>
+        <div id="stats-game-history-results"></div>
       </div>
 
       <div class="card stats-reset-card">
@@ -4149,7 +4321,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.19', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.21', {
         updateViaCache: 'none'
       });
       await registration.update();
