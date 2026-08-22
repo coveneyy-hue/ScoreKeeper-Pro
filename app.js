@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.25';
+const APP_VERSION = '2.26';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -2042,30 +2042,49 @@ const Screens = {
           x.takeRate = Stats.pct(x.contracts, x.hands);
           x.boldSuccessRate = Stats.pct(x.boldSuccess, x.bold);
         });
-        const values={
-          net: rows.map(x=>x.netImpact), impactIndex: rows.map(x=>x.impactIndex), win: rows.map(x=>Stats.pct(x.wins,x.games)),
-          success: rows.filter(x=>x.contracts>=3).map(x=>Stats.pct(x.success,x.contracts)),
-          take: rows.filter(x=>x.hands>0).map(x=>Stats.pct(x.contracts,x.hands)),
-          finish: rows.map(x=>x.decisiveWins), bold: rows.map(x=>x.boldSuccess), types: rows.map(x=>x.types.size)
-        };
         const bestNet = rows.length ? Math.max(...rows.map(x=>x.netImpact)) : null;
         const bestImpactIndex = rows.length ? Math.max(...rows.map(x=>x.impactIndex)) : null;
+        const bestWinPct = rows.length ? Math.max(...rows.map(x=>Stats.pct(x.wins,x.games))) : null;
+        const eligibleSuccess = rows.filter(x=>x.contracts>=3);
+        const bestSuccessPct = eligibleSuccess.length ? Math.max(...eligibleSuccess.map(x=>Stats.pct(x.success,x.contracts))) : null;
+        const eligibleTake = rows.filter(x=>x.hands>0);
+        const bestTakeRate = eligibleTake.length ? Math.max(...eligibleTake.map(x=>Stats.pct(x.contracts,x.hands))) : null;
+        const bestFinish = rows.length ? Math.max(...rows.map(x=>x.decisiveWins)) : null;
+        const bestBoldSuccess = rows.length ? Math.max(...rows.map(x=>x.boldSuccess)) : null;
+        const bestTypes = rows.length ? Math.max(...rows.map(x=>x.types.size)) : null;
+        const same=(a,b)=>a!==null&&b!==null&&Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<1e-9;
         const chooseStrength=x=>{
-          // Priorité absolue : 1) meilleur impact net, 2) meilleur indice d’impact, 3) autres forces relatives.
-          if(bestNet !== null && Math.abs(x.netImpact-bestNet)<1e-9) {
+          // Hiérarchie stricte : le premier critère où le joueur est meilleur gagne.
+          // 1) impact net, 2) indice d’impact, 3) ratio V/D, 4) réussite contrats,
+          // 5) fréquence de prise, 6) finisseur, 7) gros contrats réussis, 8) polyvalence.
+          if(same(x.netImpact,bestNet)) {
             return {title:'Producteur de points',icon:'⚡',detail:`Impact net ${Utils.signed(x.netImpact)} pts : c’est le meilleur impact net parmi les joueurs admissibles dans les filtres actuels.`};
           }
-          if(bestImpactIndex !== null && Math.abs(x.impactIndex-bestImpactIndex)<1e-9) {
+          if(same(x.impactIndex,bestImpactIndex)) {
             return {title:'Meilleur indice d’impact',icon:'⭐',detail:`Indice d’impact ${x.impactIndex.toFixed(1)}/10 : c’est le meilleur score global, combinant victoires, réussite, efficacité en points, contribution aux victoires et contrats finisseurs.`};
           }
-          const c=[];
-          c.push({score:pctRank(values.win,Stats.pct(x.wins,x.games)),title:'Gagnant régulier',icon:'🏆',detail:`${x.wins}/${x.games} victoires (${Stats.pct(x.wins,x.games).toFixed(1)} %) : son principal point fort est de convertir ses parties en victoires.`});
-          if(x.contracts>=3)c.push({score:pctRank(values.success,Stats.pct(x.success,x.contracts))+0.02,title:'Précis au contrat',icon:'🎯',detail:`${x.success}/${x.contracts} contrats réussis (${Stats.pct(x.success,x.contracts).toFixed(1)} %) : il transforme efficacement ses prises de contrat.`});
-          if(x.hands>0)c.push({score:pctRank(values.take,Stats.pct(x.contracts,x.hands)),title:'Meneur des enchères',icon:'📣',detail:`Il prend ${Stats.pct(x.contracts,x.hands).toFixed(1)} % des contrats disponibles lorsqu'il joue : il assume souvent la responsabilité de la donne.`});
-          if(x.decisiveWins>0)c.push({score:pctRank(values.finish,x.decisiveWins)+0.03,title:'Finisseur',icon:'🏁',detail:`${x.decisiveWins} contrat(s) réussi(s) ont directement terminé une partie gagnante pour son équipe.`});
-          if(x.boldSuccess>0)c.push({score:pctRank(values.bold,x.boldSuccess)+0.01,title:'Audacieux efficace',icon:'🔥',detail:`${x.boldSuccess} gros contrat(s) Partie/Mulot réussi(s) : il obtient des résultats lorsqu'il choisit les mises les plus ambitieuses.`});
-          if(x.types.size>=2)c.push({score:pctRank(values.types,x.types.size),title:'Polyvalent',icon:'🃏',detail:`${x.types.size} types de contrats différents tentés : son jeu ne repose pas sur une seule catégorie de mise.`});
-          c.sort((a,b)=>b.score-a.score); return c[0]||{title:'Profil en construction',icon:'•',detail:'Pas encore assez de données de contrats pour isoler un point fort fiable.'};
+          const winPct=Stats.pct(x.wins,x.games);
+          if(same(winPct,bestWinPct)) {
+            return {title:'Gagnant régulier',icon:'🏆',detail:`${x.wins}/${x.games} victoires (${winPct.toFixed(1)} %) : c’est le meilleur ratio victoires/défaites parmi les joueurs admissibles dans les filtres actuels.`};
+          }
+          const successPct=x.contracts>=3?Stats.pct(x.success,x.contracts):null;
+          if(x.contracts>=3 && same(successPct,bestSuccessPct)) {
+            return {title:'Précis au contrat',icon:'🎯',detail:`${x.success}/${x.contracts} contrats réussis (${successPct.toFixed(1)} %) : c’est le meilleur taux de réussite des contrats parmi les joueurs admissibles.`};
+          }
+          const takeRate=x.hands>0?Stats.pct(x.contracts,x.hands):null;
+          if(x.hands>0 && same(takeRate,bestTakeRate)) {
+            return {title:'Meneur des enchères',icon:'📣',detail:`Il prend ${takeRate.toFixed(1)} % des contrats disponibles lorsqu'il joue : c’est la fréquence de prise la plus élevée parmi les joueurs admissibles.`};
+          }
+          if(x.decisiveWins>0 && same(x.decisiveWins,bestFinish)) {
+            return {title:'Finisseur',icon:'🏁',detail:`${x.decisiveWins} contrat(s) réussi(s) ont directement terminé une partie gagnante pour son équipe : c’est le meilleur total de contrats finisseurs.`};
+          }
+          if(x.boldSuccess>0 && same(x.boldSuccess,bestBoldSuccess)) {
+            return {title:'Audacieux efficace',icon:'🔥',detail:`${x.boldSuccess} gros contrat(s) Partie/Mulot réussi(s) : c’est le meilleur total sur les mises les plus ambitieuses.`};
+          }
+          if(x.types.size>=2 && same(x.types.size,bestTypes)) {
+            return {title:'Polyvalent',icon:'🃏',detail:`${x.types.size} types de contrats différents tentés : c’est la plus grande diversité de contrats parmi les joueurs admissibles.`};
+          }
+          return {title:'Profil en construction',icon:'•',detail:'Pas encore assez de données distinctives pour isoler un point fort selon la hiérarchie actuelle.'};
         };
         const chooseRecommendation=x=>{
           const impact = x.impactBreakdown || Stats.impactIndex(
@@ -3919,7 +3938,7 @@ const UI = {
   openStatsInfo(key) {
     const infos = {
       impactRanking: ['Classement par impact net', 'Classement principal du 500 en équipes. Impact net = points produits par les contrats réussis moins les points concédés à l’adversaire lors des contrats perdus. Le trophée va au meilleur impact net.'],
-      strengths: ['Points forts et recommandations', 'Le point fort suit cette priorité : 1) meilleur impact net, 2) meilleur indice d’impact, puis les autres forces relatives. La recommandation est calculée séparément : elle cible le levier d’amélioration le plus pertinent selon le bilan des contrats et les composantes pondérées de l’indice d’impact. Un impact net négatif ou des gros contrats souvent perdus sont traités en priorité.'],
+      strengths: ['Points forts et recommandations', 'Le point fort suit une hiérarchie stricte : 1) meilleur impact net, 2) meilleur indice d’impact, 3) meilleur ratio victoires/défaites, 4) meilleur taux de réussite des contrats, 5) plus forte fréquence de prise, 6) meilleur finisseur, 7) audacieux efficace, 8) polyvalent. La recommandation est calculée séparément : elle cible le levier d’amélioration le plus pertinent selon le bilan des contrats et les composantes pondérées de l’indice d’impact. Un impact net négatif ou des gros contrats souvent perdus sont traités en priorité.'],
       winsPlayers: ['Victoires par joueur', 'V/G = victoires sur parties jouées. Une partie d’une série compte comme une partie distincte. Ce classement mesure le résultat final, sans tenir compte directement de la valeur des contrats.'],
       winsTeams: ['Victoires par équipe', 'V/G = victoires sur parties jouées pour chaque duo. Les équipes sont comparées selon leur pourcentage de victoires dans les filtres actuels.'],
       advanced: ['Statistiques avancées 500', 'Analyse les contrats pris par les joueurs : fréquence, réussite, impact net, rôle dans les victoires, partenariats, position de parole, tendances, records et indice d’impact.'],
@@ -4499,7 +4518,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.25', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.26', {
         updateViaCache: 'none'
       });
       await registration.update();
