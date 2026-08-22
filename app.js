@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.24';
+const APP_VERSION = '2.25';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -2033,10 +2033,14 @@ const Screens = {
           return (below + Math.max(0,equal-1)/2) / Math.max(1,nums.length-1);
         };
         rows.forEach(x => {
-          x.impactIndex = Stats.impactIndex(
+          const impact = Stats.impactIndex(
             { success:x.success, contracts:x.contracts, successPoints:x.successPoints, failedCost:x.failedCost },
             { games:x.games, wins:x.wins, winsWithSuccess:x.winsWithSuccess, decisiveWins:x.decisiveWins }
-          ).score;
+          );
+          x.impactIndex = impact.score;
+          x.impactBreakdown = impact;
+          x.takeRate = Stats.pct(x.contracts, x.hands);
+          x.boldSuccessRate = Stats.pct(x.boldSuccess, x.bold);
         });
         const values={
           net: rows.map(x=>x.netImpact), impactIndex: rows.map(x=>x.impactIndex), win: rows.map(x=>Stats.pct(x.wins,x.games)),
@@ -2063,9 +2067,38 @@ const Screens = {
           if(x.types.size>=2)c.push({score:pctRank(values.types,x.types.size),title:'Polyvalent',icon:'🃏',detail:`${x.types.size} types de contrats différents tentés : son jeu ne repose pas sur une seule catégorie de mise.`});
           c.sort((a,b)=>b.score-a.score); return c[0]||{title:'Profil en construction',icon:'•',detail:'Pas encore assez de données de contrats pour isoler un point fort fiable.'};
         };
+        const chooseRecommendation=x=>{
+          const impact = x.impactBreakdown || Stats.impactIndex(
+            { success:x.success, contracts:x.contracts, successPoints:x.successPoints, failedCost:x.failedCost },
+            { games:x.games, wins:x.wins, winsWithSuccess:x.winsWithSuccess, decisiveWins:x.decisiveWins }
+          );
+          if (x.contracts === 0) {
+            return {title:'Prendre quelques contrats calculés',detail:`Aucun contrat pris sur ${x.hands} occasion(s) enregistrée(s). Commencer par des mises à forte probabilité permettrait de mesurer puis d’augmenter sa contribution directe.`};
+          }
+          if (x.netImpact < 0) {
+            return {title:'Ramener l’impact net dans le positif',detail:`Ses contrats ont produit ${x.successPoints} pts mais ont concédé ${x.failedCost} pts, pour un impact net de ${Utils.signed(x.netImpact)}. La priorité est de réduire les échecs coûteux, surtout sur les mises élevées.`};
+          }
+          if (x.bold >= 2 && x.boldSuccessRate < 50) {
+            return {title:'Mieux sélectionner les gros contrats',detail:`${x.boldSuccess}/${x.bold} Partie/Mulot réussis (${x.boldSuccessRate.toFixed(1)} %). Une sélection plus stricte de ces contrats améliorerait rapidement l’impact net sans devoir miser moins souvent.`};
+          }
+          if (x.contracts < 3) {
+            return {title:'Accumuler davantage de prises mesurées',detail:`Seulement ${x.contracts} contrat(s) pris. Quelques contrats supplémentaires, choisis dans des situations favorables, donneraient une base plus fiable pour cibler précisément le prochain levier d’amélioration.`};
+          }
+          const candidates = [
+            {key:'win',loss:0.35*(100-impact.winPct),title:'Convertir davantage de parties en victoires',detail:`Taux de victoire ${impact.winPct.toFixed(1)} %. C’est actuellement la composante qui limite le plus sa performance globale : l’objectif est de transformer plus souvent ses bonnes contributions en victoire d’équipe.`},
+            {key:'success',loss:0.25*(100-impact.successPct),title:'Être plus sélectif dans les contrats',detail:`${x.success}/${x.contracts} contrats réussis (${impact.successPct.toFixed(1)} %). Améliorer la sélection des mises augmenterait simultanément l’indice d’impact et l’impact net.`},
+            {key:'value',loss:0.20*(100-impact.valueEfficiency),title:'Limiter le coût des contrats perdus',detail:`Efficacité en points ${impact.valueEfficiency.toFixed(1)} % : ${x.successPoints} pts produits contre ${x.failedCost} pts concédés. Réduire la valeur des échecs est son meilleur levier sur les points.`}
+          ];
+          if (x.wins >= 2) {
+            candidates.push({key:'contribution',loss:0.10*(100-impact.contributionPct),title:'Être plus souvent moteur des victoires',detail:`Il réussit lui-même au moins un contrat dans ${impact.contributionPct.toFixed(1)} % de ses victoires. Augmenter cette contribution directe rendrait ses victoires moins dépendantes du partenaire.`});
+            candidates.push({key:'finisher',loss:0.10*(100-impact.finisherPct),title:'Développer son rôle de finisseur',detail:`${x.decisiveWins} de ses ${x.wins} victoire(s) se terminent directement sur l’un de ses contrats (${impact.finisherPct.toFixed(1)} %). Identifier davantage les occasions de fermer une partie renforcerait son impact.`});
+          }
+          const best = candidates.sort((a,b)=>b.loss-a.loss)[0];
+          return best || {title:'Consolider la régularité',detail:'Les indicateurs sont équilibrés. Le prochain gain viendra surtout de maintenir la réussite tout en évitant les contrats à faible valeur attendue.'};
+        };
         strengthsEl.innerHTML = rows.length ? `<div class="stats-strengths-list">${rows
           .sort((a,b)=>b.netImpact-a.netImpact || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games))
-          .map(x=>{const s=chooseStrength(x);return `<div class="stats-strength-row"><div class="stats-strength-icon">${s.icon}</div><div class="stats-strength-main"><strong>${Utils.esc(x.name)} · ${Utils.esc(s.title)}</strong><small>${Utils.esc(s.detail)}</small></div></div>`;}).join('')}</div>`
+          .map(x=>{const s=chooseStrength(x);const r=chooseRecommendation(x);return `<div class="stats-strength-row"><div class="stats-strength-icon">${s.icon}</div><div class="stats-strength-main"><strong>${Utils.esc(x.name)} · ${Utils.esc(s.title)}</strong><small>${Utils.esc(s.detail)}</small><div class="stats-recommendation"><span>À travailler</span><strong>${Utils.esc(r.title)}</strong><small>${Utils.esc(r.detail)}</small></div></div></div>`;}).join('')}</div>`
           : `<div class="empty-state-text">Aucun joueur ne satisfait le minimum de parties.</div>`;
       }
     }
@@ -3886,7 +3919,7 @@ const UI = {
   openStatsInfo(key) {
     const infos = {
       impactRanking: ['Classement par impact net', 'Classement principal du 500 en équipes. Impact net = points produits par les contrats réussis moins les points concédés à l’adversaire lors des contrats perdus. Le trophée va au meilleur impact net.'],
-      strengths: ['Points forts des joueurs', 'Priorité de sélection : 1) meilleur impact net, 2) meilleur indice d’impact, puis les autres forces relatives comme les victoires, la réussite des contrats, la fréquence de prise, les contrats finisseurs, les gros contrats réussis et la polyvalence. Ainsi, un joueur qui domine l’indice d’impact est identifié comme tel s’il n’est pas déjà le meilleur à l’impact net.'],
+      strengths: ['Points forts et recommandations', 'Le point fort suit cette priorité : 1) meilleur impact net, 2) meilleur indice d’impact, puis les autres forces relatives. La recommandation est calculée séparément : elle cible le levier d’amélioration le plus pertinent selon le bilan des contrats et les composantes pondérées de l’indice d’impact. Un impact net négatif ou des gros contrats souvent perdus sont traités en priorité.'],
       winsPlayers: ['Victoires par joueur', 'V/G = victoires sur parties jouées. Une partie d’une série compte comme une partie distincte. Ce classement mesure le résultat final, sans tenir compte directement de la valeur des contrats.'],
       winsTeams: ['Victoires par équipe', 'V/G = victoires sur parties jouées pour chaque duo. Les équipes sont comparées selon leur pourcentage de victoires dans les filtres actuels.'],
       advanced: ['Statistiques avancées 500', 'Analyse les contrats pris par les joueurs : fréquence, réussite, impact net, rôle dans les victoires, partenariats, position de parole, tendances, records et indice d’impact.'],
@@ -4390,7 +4423,7 @@ function buildScreenHTML() {
       </div>
 
       <div class="card stats-strengths-card">
-        <div class="card-title stats-title-with-info"><span>Points forts des joueurs</span><button class="stats-info-btn" onclick="UI.openStatsInfo('strengths')" aria-label="Information sur les points forts">i</button></div>
+        <div class="card-title stats-title-with-info"><span>Points forts et recommandations</span><button class="stats-info-btn" onclick="UI.openStatsInfo('strengths')" aria-label="Information sur les points forts et recommandations">i</button></div>
         <div class="setting-sub" style="margin-bottom:12px">Pour chaque joueur, l’application ressort la dimension où il se démarque le plus dans les filtres actuels.</div>
         <div id="stats-player-strengths"></div>
       </div>
@@ -4466,7 +4499,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.24', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.25', {
         updateViaCache: 'none'
       });
       await registration.update();
