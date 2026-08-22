@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.22 : points forts joueurs + aide contextuelle des statistiques
+ * v2.23 : correction des fenêtres d’information statistiques (modale globale)
  */
 
-const CACHE_NAME = 'scorekeeper-v2.22';
+const CACHE_NAME = 'scorekeeper-v2.23';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.22',
-  './app.js?v=2.22',
+  './style.css?v=2.23',
+  './app.js?v=2.23',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

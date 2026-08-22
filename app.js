@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.22';
+const APP_VERSION = '2.23';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -4021,6 +4021,17 @@ function buildScreenHTML() {
     <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
 
+    <!-- Modale globale : utilisable depuis tous les écrans -->
+    <div class="app-modal-overlay" id="app-modal-overlay" onclick="UI.closeModalFromBackdrop(event)" style="display:none">
+      <div class="app-modal-card" id="app-modal-card">
+        <div class="app-modal-header">
+          <div class="app-modal-title" id="app-modal-title"></div>
+          <button class="btn-back" onclick="UI.closeAppModal()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="app-modal-body" id="app-modal-body"></div>
+      </div>
+    </div>
+
     <div class="app-shell">
       <!-- Rail de navigation (tablette et plus) -->
       <nav class="side-rail" aria-label="Navigation principale">
@@ -4249,15 +4260,6 @@ function buildScreenHTML() {
         <span>À TOI DE COMMENCER</span>
         <strong id="fh-starter-callout-name">—</strong>
       </div>
-      <div class="app-modal-overlay" id="app-modal-overlay" onclick="UI.closeModalFromBackdrop(event)" style="display:none">
-        <div class="app-modal-card" id="app-modal-card">
-          <div class="app-modal-header">
-            <div class="app-modal-title" id="app-modal-title"></div>
-            <button class="btn-back" onclick="UI.closeAppModal()">✕</button>
-          </div>
-          <div class="app-modal-body" id="app-modal-body"></div>
-        </div>
-      </div>
       <div class="bottom-safe"></div>
     </div>
 
@@ -4445,7 +4447,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.22', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.23', {
         updateViaCache: 'none'
       });
       await registration.update();
