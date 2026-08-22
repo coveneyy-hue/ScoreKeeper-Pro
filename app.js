@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.21';
+const APP_VERSION = '2.22';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1905,6 +1905,7 @@ const Screens = {
     const rowHtml = (x, extra='', trophy=false) => `<div class="stats-row ${trophy ? 'stats-leader' : ''}"><div class="stats-main"><div class="stats-name-line">${trophy ? '<span class="stats-trophy" title="Meilleur pourcentage de victoires" aria-label="Meilleur pourcentage de victoires">🏆</span>' : ''}<strong>${Utils.esc(x.name)}</strong></div>${extra}</div><div>${x.wins}/${x.games}</div><div class="stats-pct">${Stats.pct(x.wins,x.games).toFixed(1)} %</div></div>`;
 
     const impactRankingEl = document.getElementById('stats-impact-ranking');
+    const strengthsEl = document.getElementById('stats-player-strengths');
     const playersEl = document.getElementById('stats-player-results');
     const teamsEl = document.getElementById('stats-team-results');
     const advancedEl = document.getElementById('stats-advanced-results');
@@ -1928,14 +1929,20 @@ const Screens = {
           names.forEach(name => {
             const key = Stats.nameKey(name);
             if (playerFilter !== 'all' && key !== playerFilter) return;
-            const x = impactPlayers.get(key) || { name, games:0, wins:0, netImpact:0, contracts:0, success:0, failed:0 };
+            const x = impactPlayers.get(key) || { name, games:0, wins:0, netImpact:0, contracts:0, success:0, failed:0, hands:0, decisiveWins:0, bold:0, boldSuccess:0, types:new Set() };
             x.games++;
             if ((r.winnerPlayers || []).some(w => Stats.nameKey(w) === key)) x.wins++;
             impactPlayers.set(key, x);
           });
         });
 
+        const rankingGameKey = (r) => `${r.sourceGameId || ''}|${r.seriesGameNumber || 1}`;
+        const rankingContractsByGame = new Map();
         baseContractRecords.forEach(r => {
+          const gk = rankingGameKey(r);
+          if (!rankingContractsByGame.has(gk)) rankingContractsByGame.set(gk, []);
+          rankingContractsByGame.get(gk).push(r);
+
           const key = Stats.nameKey(r.player);
           if (playerFilter !== 'all' && key !== playerFilter) return;
           const x = impactPlayers.get(key);
@@ -1943,6 +1950,23 @@ const Screens = {
           x.contracts++;
           if (r.success) x.success++; else x.failed++;
           x.netImpact += Number(r.netImpact) || 0;
+          x.types.add(r.contract);
+          if (Games.fiveHundred.isAnyMulotContract(r.contract) || Games.fiveHundred.isGameContract(r.contract)) {
+            x.bold++;
+            if (r.success) x.boldSuccess++;
+          }
+        });
+        rankingContractsByGame.forEach(arr => arr.sort((a,b) => new Date(a.date) - new Date(b.date)));
+        rankingGames.forEach(gr => {
+          const gc = rankingContractsByGame.get(rankingGameKey(gr)) || [];
+          const finalContract = gc.length ? gc[gc.length - 1] : null;
+          (gr.players || []).forEach(name => {
+            const x = impactPlayers.get(Stats.nameKey(name));
+            if (!x) return;
+            x.hands += gc.length;
+            if (finalContract?.success && Stats.nameKey(finalContract.player) === Stats.nameKey(name) &&
+                (gr.winnerPlayers || []).some(w => Stats.nameKey(w) === Stats.nameKey(name))) x.decisiveWins++;
+          });
         });
 
         const impactRows = [...impactPlayers.values()]
@@ -1959,6 +1983,71 @@ const Screens = {
         impactRankingEl.innerHTML = impactRows.length
           ? `<div class="stats-impact-ranking-note">Classement principal du 500 selon l'impact net des contrats. En cas d'égalité, le % de victoires puis le nombre de parties départagent l'ordre. ${identifiedContracts} contrat(s) avec preneur identifié dans les filtres actuels.</div><div class="stats-impact-ranking-list">${rankingRowsHtml}</div>`
           : `<div class="empty-state-text">${minGames ? `Aucun joueur avec au moins ${minGames} parties de 500 en équipes` : 'Aucune donnée de 500 en équipes'}</div>`;
+      }
+    }
+
+    if (strengthsEl) {
+      const strengthsAvailable = (gameFilter === 'all' || gameFilter === 'fiveHundred') && modeFilter !== 'individual';
+      if (!strengthsAvailable) {
+        strengthsEl.innerHTML = `<div class="empty-state-text">Les points forts sont disponibles pour le 500 en équipes.</div>`;
+      } else {
+        const sPlayers = new Map();
+        const sGames = records.filter(r => r.gameType === 'fiveHundred' && r.mode === 'teams');
+        sGames.forEach(gr => {
+          let strengthNames = gr.players || [];
+          if (teamFilter !== 'all') strengthNames = (gr.teams || []).find(t => t.key === teamFilter)?.members || [];
+          strengthNames.forEach(name => {
+          const pk = Stats.nameKey(name);
+          if (playerFilter !== 'all' && pk !== playerFilter) return;
+          const x = sPlayers.get(pk) || { name, games:0, wins:0, contracts:0, success:0, failed:0, netImpact:0, hands:0, decisiveWins:0, bold:0, boldSuccess:0, types:new Set() };
+          x.games++;
+          if ((gr.winnerPlayers || []).some(w => Stats.nameKey(w) === pk)) x.wins++;
+          sPlayers.set(pk,x);
+          });
+        });
+        const sgk = r => `${r.sourceGameId || ''}|${r.seriesGameNumber || 1}`;
+        const scbg = new Map();
+        baseContractRecords.forEach(c => {
+          const gk=sgk(c); if(!scbg.has(gk)) scbg.set(gk,[]); scbg.get(gk).push(c);
+          const x=sPlayers.get(Stats.nameKey(c.player)); if(!x) return;
+          x.contracts++; if(c.success)x.success++; else x.failed++;
+          x.netImpact += Number(c.netImpact)||0; x.types.add(c.contract);
+          if (Games.fiveHundred.isAnyMulotContract(c.contract) || Games.fiveHundred.isGameContract(c.contract)) { x.bold++; if(c.success)x.boldSuccess++; }
+        });
+        scbg.forEach(a=>a.sort((a,b)=>new Date(a.date)-new Date(b.date)));
+        sGames.forEach(gr=>{
+          const gc=scbg.get(sgk(gr))||[]; const last=gc.length?gc[gc.length-1]:null;
+          (gr.players||[]).forEach(name=>{ const x=sPlayers.get(Stats.nameKey(name)); if(!x)return; x.hands += gc.length;
+            if(last?.success && Stats.nameKey(last.player)===Stats.nameKey(name) && (gr.winnerPlayers||[]).some(w=>Stats.nameKey(w)===Stats.nameKey(name))) x.decisiveWins++;
+          });
+        });
+        const rows=[...sPlayers.values()].filter(x=>x.games>=minGames);
+        const pctRank=(arr,val)=>{
+          const nums=arr.filter(Number.isFinite).slice().sort((a,b)=>a-b); if(!nums.length)return 0;
+          let below=0,equal=0; nums.forEach(n=>{if(n<val)below++; else if(Math.abs(n-val)<1e-9)equal++;});
+          return (below + Math.max(0,equal-1)/2) / Math.max(1,nums.length-1);
+        };
+        const values={
+          net: rows.map(x=>x.netImpact), win: rows.map(x=>Stats.pct(x.wins,x.games)),
+          success: rows.filter(x=>x.contracts>=3).map(x=>Stats.pct(x.success,x.contracts)),
+          take: rows.filter(x=>x.hands>0).map(x=>Stats.pct(x.contracts,x.hands)),
+          finish: rows.map(x=>x.decisiveWins), bold: rows.map(x=>x.boldSuccess), types: rows.map(x=>x.types.size)
+        };
+        const chooseStrength=x=>{
+          const c=[];
+          c.push({score:pctRank(values.net,x.netImpact)+0.04,title:'Producteur de points',icon:'⚡',detail:`Impact net ${Utils.signed(x.netImpact)} pts : ses contrats ont produit plus de valeur nette que ses échecs n'en ont coûté.`});
+          c.push({score:pctRank(values.win,Stats.pct(x.wins,x.games)),title:'Gagnant régulier',icon:'🏆',detail:`${x.wins}/${x.games} victoires (${Stats.pct(x.wins,x.games).toFixed(1)} %) : son principal point fort est de convertir ses parties en victoires.`});
+          if(x.contracts>=3)c.push({score:pctRank(values.success,Stats.pct(x.success,x.contracts))+0.02,title:'Précis au contrat',icon:'🎯',detail:`${x.success}/${x.contracts} contrats réussis (${Stats.pct(x.success,x.contracts).toFixed(1)} %) : il transforme efficacement ses prises de contrat.`});
+          if(x.hands>0)c.push({score:pctRank(values.take,Stats.pct(x.contracts,x.hands)),title:'Meneur des enchères',icon:'📣',detail:`Il prend ${Stats.pct(x.contracts,x.hands).toFixed(1)} % des contrats disponibles lorsqu'il joue : il assume souvent la responsabilité de la donne.`});
+          if(x.decisiveWins>0)c.push({score:pctRank(values.finish,x.decisiveWins)+0.03,title:'Finisseur',icon:'🏁',detail:`${x.decisiveWins} contrat(s) réussi(s) ont directement terminé une partie gagnante pour son équipe.`});
+          if(x.boldSuccess>0)c.push({score:pctRank(values.bold,x.boldSuccess)+0.01,title:'Audacieux efficace',icon:'🔥',detail:`${x.boldSuccess} gros contrat(s) Partie/Mulot réussi(s) : il obtient des résultats lorsqu'il choisit les mises les plus ambitieuses.`});
+          if(x.types.size>=2)c.push({score:pctRank(values.types,x.types.size),title:'Polyvalent',icon:'🃏',detail:`${x.types.size} types de contrats différents tentés : son jeu ne repose pas sur une seule catégorie de mise.`});
+          c.sort((a,b)=>b.score-a.score); return c[0]||{title:'Profil en construction',icon:'•',detail:'Pas encore assez de données de contrats pour isoler un point fort fiable.'};
+        };
+        strengthsEl.innerHTML = rows.length ? `<div class="stats-strengths-list">${rows
+          .sort((a,b)=>b.netImpact-a.netImpact || Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games))
+          .map(x=>{const s=chooseStrength(x);return `<div class="stats-strength-row"><div class="stats-strength-icon">${s.icon}</div><div class="stats-strength-main"><strong>${Utils.esc(x.name)} · ${Utils.esc(s.title)}</strong><small>${Utils.esc(s.detail)}</small></div></div>`;}).join('')}</div>`
+          : `<div class="empty-state-text">Aucun joueur ne satisfait le minimum de parties.</div>`;
       }
     }
 
@@ -2222,18 +2311,18 @@ const Screens = {
         }).sort((a,b)=>b.score-a.score || b.imp.games-a.imp.games);
         const bestImpactIndex = impactIndexRows[0] || null;
 
-        const kpi = (title, name, detail) => `<div class="stats-kpi"><span>${Utils.esc(title)}</span><strong>${Utils.esc(name || 'N/D')}</strong><small>${Utils.esc(detail || '')}</small></div>`;
+        const kpi = (title, name, detail, infoKey) => `<div class="stats-kpi"><span>${Utils.esc(title)}${infoKey ? ` <button class="stats-info-btn stats-info-btn-mini" onclick="UI.openStatsInfo('${infoKey}')" aria-label="Information">i</button>` : ''}</span><strong>${Utils.esc(name || 'N/D')}</strong><small>${Utils.esc(detail || '')}</small></div>`;
         const kpis = [
-          kpi('Meilleur duo', bestPair?.name, bestPair ? `${bestPair.wins}/${bestPair.games} victoires · ${Stats.pct(bestPair.wins,bestPair.games).toFixed(1)} %` : ''),
-          kpi('Indice d’impact', bestImpactIndex?.name, bestImpactIndex ? `${bestImpactIndex.score.toFixed(1)}/10` : ''),
-          kpi('Meilleur impact net', bestNet?.name, bestNet ? `${Utils.signed(bestNet.netImpact)} pts sur ses contrats` : ''),
-          kpi('Contrat le plus fréquent', popular?.label, popular ? `${popular.attempts} tentative(s) · ${Stats.pct(popular.attempts,totalAttempts).toFixed(1)} % des contrats` : ''),
-          kpi('Prend le plus souvent', mostActive?.name, mostActive ? `${mostActive.contracts} contrat(s) · ${Stats.pct(mostActive.contracts,totalAttempts).toFixed(1)} % du total filtré` : ''),
-          kpi('Meilleure efficacité', bestEfficiency?.name, bestEfficiency ? `${bestEfficiency.success}/${bestEfficiency.contracts} réussis · ${Stats.pct(bestEfficiency.success,bestEfficiency.contracts).toFixed(1)} %` : 'Minimum 3 contrats'),
-          kpi('Plus utile aux victoires', mostUseful?.name, mostUseful ? `${mostUseful.winsWithSuccess} victoire(s) avec au moins 1 contrat réussi` : ''),
-          kpi('Joue le plus assis', mostSeated?.name, mostSeated ? `${mostSeated.contracts}/${mostSeated.hands} contrats pris · ${Stats.pct(mostSeated.contracts,mostSeated.hands).toFixed(1)} % des donnes` : ''),
-          kpi('Meilleur finisseur', bestFinisher?.decisiveWins ? bestFinisher.name : null, bestFinisher?.decisiveWins ? `${bestFinisher.decisiveWins} contrat(s) réussi(s) ayant terminé une victoire` : 'Aucun contrat finisseur réussi'),
-          kpi('Plus audacieux', boldest?.name, boldest ? `${boldest.bold} Partie/Mulot tenté(s) · ${boldest.boldSuccess} réussi(s)` : ''),
+          kpi('Meilleur duo', bestPair?.name, bestPair ? `${bestPair.wins}/${bestPair.games} victoires · ${Stats.pct(bestPair.wins,bestPair.games).toFixed(1)} %` : '', 'partnerships'),
+          kpi('Indice d’impact', bestImpactIndex?.name, bestImpactIndex ? `${bestImpactIndex.score.toFixed(1)}/10` : '', 'impactIndex'),
+          kpi('Meilleur impact net', bestNet?.name, bestNet ? `${Utils.signed(bestNet.netImpact)} pts sur ses contrats` : '', 'netImpact'),
+          kpi('Contrat le plus fréquent', popular?.label, popular ? `${popular.attempts} tentative(s) · ${Stats.pct(popular.attempts,totalAttempts).toFixed(1)} % des contrats` : '', 'contractHistory'),
+          kpi('Prend le plus souvent', mostActive?.name, mostActive ? `${mostActive.contracts} contrat(s) · ${Stats.pct(mostActive.contracts,totalAttempts).toFixed(1)} % du total filtré` : '', 'takeRate'),
+          kpi('Meilleure efficacité', bestEfficiency?.name, bestEfficiency ? `${bestEfficiency.success}/${bestEfficiency.contracts} réussis · ${Stats.pct(bestEfficiency.success,bestEfficiency.contracts).toFixed(1)} %` : 'Minimum 3 contrats', 'successRate'),
+          kpi('Plus utile aux victoires', mostUseful?.name, mostUseful ? `${mostUseful.winsWithSuccess} victoire(s) avec au moins 1 contrat réussi` : '', 'teamImpact'),
+          kpi('Joue le plus assis', mostSeated?.name, mostSeated ? `${mostSeated.contracts}/${mostSeated.hands} contrats pris · ${Stats.pct(mostSeated.contracts,mostSeated.hands).toFixed(1)} % des donnes` : '', 'takeRate'),
+          kpi('Meilleur finisseur', bestFinisher?.decisiveWins ? bestFinisher.name : null, bestFinisher?.decisiveWins ? `${bestFinisher.decisiveWins} contrat(s) réussi(s) ayant terminé une victoire` : 'Aucun contrat finisseur réussi', 'finisher'),
+          kpi('Plus audacieux', boldest?.name, boldest ? `${boldest.bold} Partie/Mulot tenté(s) · ${boldest.boldSuccess} réussi(s)` : '', 'bidders'),
         ].join('');
 
         const bidderRows = eligibleBidders.slice().sort((a,b)=>b.contracts-a.contracts || Stats.pct(b.success,b.contracts)-Stats.pct(a.success,a.contracts) || a.name.localeCompare(b.name,'fr-CA'));
@@ -2351,8 +2440,8 @@ const Screens = {
           return `<details class="stats-player-profile">
             <summary><span><strong>${Utils.esc(x.name)}</strong><small>${x.imp.wins}/${x.imp.games} victoires · ${x.bid.success}/${x.bid.contracts} contrats réussis</small></span><span class="stats-impact-badge">${x.idx.score.toFixed(1)}</span></summary>
             <div class="stats-profile-grid">
-              <div><span>Impact net</span><strong class="${x.bid.netImpact >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(x.bid.netImpact)} pts</strong></div>
-              <div><span>Réussite contrats</span><strong>${Stats.pct(x.bid.success,x.bid.contracts).toFixed(1)} %</strong></div>
+              <div><span>Impact net <button class="stats-info-btn stats-info-btn-mini" onclick="event.stopPropagation();UI.openStatsInfo('netImpact')" aria-label="Information sur l’impact net">i</button></span><strong class="${x.bid.netImpact >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(x.bid.netImpact)} pts</strong></div>
+              <div><span>Réussite contrats <button class="stats-info-btn stats-info-btn-mini" onclick="event.stopPropagation();UI.openStatsInfo('successRate')" aria-label="Information sur la réussite des contrats">i</button></span><strong>${Stats.pct(x.bid.success,x.bid.contracts).toFixed(1)} %</strong></div>
               <div><span>Contrat préféré</span><strong>${Utils.esc(favLabel)}</strong></div>
               <div><span>Plus gros réussi</span><strong>${x.bid.biggestSuccess ? `${Utils.esc(x.bid.biggestSuccess.label)} (${x.bid.biggestSuccess.points})` : 'Aucun'}</strong></div>
               <div><span>Meilleur partenaire</span><strong>${bestPartner ? `${Utils.esc(bestPartner.name)} · ${Stats.pct(bestPartner.wins,bestPartner.games).toFixed(1)} %` : 'N/D'}</strong></div>
@@ -2360,7 +2449,7 @@ const Screens = {
               <div><span>Série actuelle</span><strong>${x.imp.currentStreak} V</strong></div>
               <div><span>Meilleure série</span><strong>${x.imp.bestStreak} V</strong></div>
               <div><span>Meilleure position</span><strong>${x.bestPos ? `${x.bestPos[0]}${x.bestPos[0]===1?'er':'e'} · ${Stats.pct(x.bestPos[1].success,x.bestPos[1].attempts).toFixed(1)} %` : 'N/D'}</strong></div>
-              <div><span>Valeur efficace</span><strong>${x.idx.valueEfficiency.toFixed(1)} %</strong></div>
+              <div><span>Valeur efficace <button class="stats-info-btn stats-info-btn-mini" onclick="event.stopPropagation();UI.openStatsInfo('valueEfficiency')" aria-label="Information sur l’efficacité en points">i</button></span><strong>${x.idx.valueEfficiency.toFixed(1)} %</strong></div>
             </div>
             ${trendHtml}
             <div class="stats-impact-formula">Indice ${x.idx.score.toFixed(1)}/10 · formule v${x.idx.version} = 35 % victoires (${x.idx.winPct.toFixed(1)}) + 25 % réussite (${x.idx.successPct.toFixed(1)}) + 20 % efficacité en points (${x.idx.valueEfficiency.toFixed(1)}) + 10 % contribution aux victoires (${x.idx.contributionPct.toFixed(1)}) + 10 % finisseurs (${x.idx.finisherPct.toFixed(1)}).</div>
@@ -2381,13 +2470,13 @@ const Screens = {
 
         advancedEl.innerHTML = `
           <div class="stats-advanced-grid">${kpis}</div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Partenariats</div><div class="stats-advanced-note">Compare les duos réellement formés. La rotation équilibrée permet de voir quels partenaires fonctionnent le mieux ensemble.</div>${partnershipHtml}</div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Preneurs, efficacité et impact net</div><div class="stats-advanced-note">Net = points de contrats réussis moins les points concédés à l'adversaire lors des contrats perdus.</div>${bidderHtml}</div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Impact dans l'équipe</div><div class="stats-advanced-note">Impact V = victoires où le joueur a réussi au moins un contrat. Part prise = proportion des donnes où ce joueur était preneur.</div>${impactHtml}</div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Position de parole</div><div class="stats-advanced-note">1er = joueur qui ouvre les enchères. La position du preneur est reconstruite sur les anciennes donnes lorsque l'historique le permet et enregistrée directement à partir de la v2.18.</div>${positionHtml}</div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Profils joueurs et indice d’impact</div><div class="stats-advanced-note">Ouvre un joueur pour voir partenaires, adversaires, séries, contrats, position et la formule complète de son indice.</div>${profilesHtml}</div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Records</div><div class="stats-record-grid">${recordsHtml}</div></div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Fréquence et historique par contrat</div><div class="stats-advanced-note">Ouvre un contrat pour voir qui l'a tenté, à quelle date et s'il a été réussi.</div>${detailsHtml}</div>`;
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Partenariats <button class="stats-info-btn" onclick="UI.openStatsInfo('partnerships')" aria-label="Information sur les partenariats">i</button></div><div class="stats-advanced-note">Compare les duos réellement formés. La rotation équilibrée permet de voir quels partenaires fonctionnent le mieux ensemble.</div>${partnershipHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Preneurs, efficacité et impact net <button class="stats-info-btn" onclick="UI.openStatsInfo('bidders')" aria-label="Information sur les preneurs et l’impact net">i</button></div><div class="stats-advanced-note">Net = points de contrats réussis moins les points concédés à l'adversaire lors des contrats perdus.</div>${bidderHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Impact dans l'équipe <button class="stats-info-btn" onclick="UI.openStatsInfo('teamImpact')" aria-label="Information sur l’impact dans l’équipe">i</button></div><div class="stats-advanced-note">Impact V = victoires où le joueur a réussi au moins un contrat. Part prise = proportion des donnes où ce joueur était preneur.</div>${impactHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Position de parole <button class="stats-info-btn" onclick="UI.openStatsInfo('bidPosition')" aria-label="Information sur la position de parole">i</button></div><div class="stats-advanced-note">1er = joueur qui ouvre les enchères. La position du preneur est reconstruite sur les anciennes donnes lorsque l'historique le permet et enregistrée directement à partir de la v2.18.</div>${positionHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Profils joueurs et indice d’impact <button class="stats-info-btn" onclick="UI.openStatsInfo('profiles')" aria-label="Information sur les profils joueurs">i</button></div><div class="stats-advanced-note">Ouvre un joueur pour voir partenaires, adversaires, séries, contrats, position et la formule complète de son indice.</div>${profilesHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Records <button class="stats-info-btn" onclick="UI.openStatsInfo('records')" aria-label="Information sur les records">i</button></div><div class="stats-record-grid">${recordsHtml}</div></div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Fréquence et historique par contrat <button class="stats-info-btn" onclick="UI.openStatsInfo('contractHistory')" aria-label="Information sur l’historique des contrats">i</button></div><div class="stats-advanced-note">Ouvre un contrat pour voir qui l'a tenté, à quelle date et s'il a été réussi.</div>${detailsHtml}</div>`;
       }
     }
 
@@ -3775,6 +3864,35 @@ const UI = {
     input.click();
   },
 
+  openStatsInfo(key) {
+    const infos = {
+      impactRanking: ['Classement par impact net', 'Classement principal du 500 en équipes. Impact net = points produits par les contrats réussis moins les points concédés à l’adversaire lors des contrats perdus. Le trophée va au meilleur impact net.'],
+      strengths: ['Points forts des joueurs', 'L’application compare plusieurs dimensions entre les joueurs admissibles : impact net, victoires, réussite des contrats, fréquence de prise, contrats finisseurs, gros contrats réussis et polyvalence. Elle retient pour chacun la dimension où il se distingue le plus par rapport aux autres joueurs dans les filtres actuels.'],
+      winsPlayers: ['Victoires par joueur', 'V/G = victoires sur parties jouées. Une partie d’une série compte comme une partie distincte. Ce classement mesure le résultat final, sans tenir compte directement de la valeur des contrats.'],
+      winsTeams: ['Victoires par équipe', 'V/G = victoires sur parties jouées pour chaque duo. Les équipes sont comparées selon leur pourcentage de victoires dans les filtres actuels.'],
+      advanced: ['Statistiques avancées 500', 'Analyse les contrats pris par les joueurs : fréquence, réussite, impact net, rôle dans les victoires, partenariats, position de parole, tendances, records et indice d’impact.'],
+      history: ['Historique détaillé des parties', 'Chaque partie terminée peut être ouverte pour consulter les équipes, le score, la durée, les statistiques des quatre joueurs et tous les contrats dans leur ordre chronologique.'],
+      netImpact: ['Impact net', 'Impact net = points des contrats réussis − points accordés aux adversaires à cause des contrats perdus. Un résultat positif signifie que les contrats du joueur ont produit un gain net pour son équipe.'],
+      impactIndex: ['Indice d’impact', 'Score composite sur 10. Formule v1 : 35 % taux de victoire, 25 % réussite des contrats, 20 % efficacité en points, 10 % contribution aux victoires et 10 % contrats finisseurs. Il complète l’impact net mais ne détermine pas le trophée principal.'],
+      partnerships: ['Partenariats', 'Compare les duos réellement formés : parties, victoires, contrats réussis et impact net. Cela permet de distinguer la performance d’un joueur de l’effet de son partenaire.'],
+      bidders: ['Preneurs et efficacité', 'Pris = nombre de contrats pris. R/P = réussis/perdus. Réussite = contrats réussis ÷ contrats pris. Net = impact net cumulé des contrats du joueur.'],
+      teamImpact: ['Impact dans l’équipe', 'Impact V = victoires où le joueur a lui-même réussi au moins un contrat. Finisseur = contrat réussi par ce joueur qui termine directement une partie gagnante. Part prise = proportion des contrats disponibles qu’il a pris.'],
+      bidPosition: ['Position de parole', '1er = joueur qui ouvrait les enchères sur la donne. Les positions suivantes suivent l’ordre de table. Le taux de réussite montre dans quelle position les contrats pris ont le mieux fonctionné.'],
+      profiles: ['Profils et indice d’impact', 'Regroupe les statistiques individuelles du joueur, ses partenaires, adversaires, séries, contrat préféré, historique d’évolution et l’indice d’impact sur 10.'],
+      records: ['Records', 'Records calculés dans les filtres courants : gros contrat, comeback, activité, impact sur une partie, séries de victoires et durée des parties.'],
+      contractHistory: ['Fréquence par contrat', 'Regroupe chaque type de contrat, le nombre de tentatives, les preneurs, les réussites et les dates. Les anciennes donnes sans preneur identifié ne peuvent pas être attribuées rétroactivement.'],
+      winRate: ['Taux de victoire', 'Pourcentage de parties terminées gagnées par le joueur ou l’équipe dans les filtres actuels.'],
+      successRate: ['Réussite des contrats', 'Nombre de contrats réussis ÷ nombre de contrats pris. Cette statistique ne tient pas compte à elle seule de la valeur des contrats.'],
+      takeRate: ['Fréquence de prise', 'Part des contrats disponibles pris par le joueur pendant les parties où il était présent. Une valeur élevée indique qu’il prend souvent la responsabilité de la mise.'],
+      valueEfficiency: ['Efficacité en points', 'Compare la valeur des points obtenus par les contrats réussis à la valeur totale engagée. Elle pénalise les échecs coûteux et complète le simple taux de réussite.'],
+      finisher: ['Contrat finisseur', 'Dernier contrat réussi par un joueur qui fait atteindre le seuil de victoire à son équipe et termine la partie.'],
+      filters: ['Filtres statistiques', 'Tous les classements et statistiques sont recalculés selon le jeu, le mode, le joueur, l’équipe, la période et le minimum de parties sélectionnés.']
+    };
+    const item = infos[key];
+    if (!item) return;
+    this.openAppModal(item[0], `<div class="stats-info-modal-text">${Utils.esc(item[1])}</div>`);
+  },
+
   refreshStats() { Screens.render_stats(); },
 
   async resetAllStats() {
@@ -4234,7 +4352,7 @@ function buildScreenHTML() {
       </div>
 
       <div class="card stats-filters">
-        <div class="card-title">Filtres</div>
+        <div class="card-title stats-title-with-info"><span>Filtres</span><button class="stats-info-btn" onclick="UI.openStatsInfo('filters')" aria-label="Information sur les filtres">i</button></div>
         <div class="stats-filter-grid">
           <div class="form-group"><label class="form-label">Jeu</label><select class="form-select" id="stats-game-filter" onchange="UI.refreshStats()"><option value="all">Tous les jeux</option><option value="fiveHundred">500</option><option value="hearts">Dame de Pique</option><option value="magic">Magic</option><option value="generic">Générique</option></select></div>
           <div class="form-group"><label class="form-label">Mode</label><select class="form-select" id="stats-mode-filter" onchange="UI.refreshStats()"><option value="all">Tous</option><option value="individual">Solo seulement (exclut les équipes)</option><option value="teams">Équipe seulement</option></select></div>
@@ -4246,21 +4364,27 @@ function buildScreenHTML() {
       </div>
 
       <div class="card stats-impact-ranking-card">
-        <div class="card-title">🏆 Classement des joueurs · Impact net</div>
+        <div class="card-title stats-title-with-info"><span>🏆 Classement des joueurs · Impact net</span><button class="stats-info-btn" onclick="UI.openStatsInfo('impactRanking')" aria-label="Information sur le classement par impact net">i</button></div>
         <div id="stats-impact-ranking"></div>
       </div>
 
+      <div class="card stats-strengths-card">
+        <div class="card-title stats-title-with-info"><span>Points forts des joueurs</span><button class="stats-info-btn" onclick="UI.openStatsInfo('strengths')" aria-label="Information sur les points forts">i</button></div>
+        <div class="setting-sub" style="margin-bottom:12px">Pour chaque joueur, l’application ressort la dimension où il se démarque le plus dans les filtres actuels.</div>
+        <div id="stats-player-strengths"></div>
+      </div>
+
       <div class="card"><div class="card-title">Résumé</div><div id="stats-summary" class="stats-summary"></div></div>
-      <div class="card"><div class="card-title">Victoires par joueur</div><div class="stats-header"><span>Joueur</span><span>V/G</span><span>%</span></div><div id="stats-player-results" class="stats-list"></div></div>
-      <div class="card"><div class="card-title">Victoires par équipe</div><div class="stats-header"><span>Équipe</span><span>V/G</span><span>%</span></div><div id="stats-team-results" class="stats-list"></div></div>
+      <div class="card"><div class="card-title stats-title-with-info"><span>Victoires par joueur</span><button class="stats-info-btn" onclick="UI.openStatsInfo('winsPlayers')" aria-label="Information sur les victoires par joueur">i</button></div><div class="stats-header"><span>Joueur</span><span>V/G</span><span>%</span></div><div id="stats-player-results" class="stats-list"></div></div>
+      <div class="card"><div class="card-title stats-title-with-info"><span>Victoires par équipe</span><button class="stats-info-btn" onclick="UI.openStatsInfo('winsTeams')" aria-label="Information sur les victoires par équipe">i</button></div><div class="stats-header"><span>Équipe</span><span>V/G</span><span>%</span></div><div id="stats-team-results" class="stats-list"></div></div>
       <div class="card stats-advanced-card">
-        <div class="card-title">Statistiques avancées 500</div>
+        <div class="card-title stats-title-with-info"><span>Statistiques avancées 500</span><button class="stats-info-btn" onclick="UI.openStatsInfo('advanced')" aria-label="Information sur les statistiques avancées">i</button></div>
         <div class="setting-sub" style="margin-bottom:12px">Analyse les contrats réellement pris, l'impact, les partenariats et l'évolution carrière / 10 dernières / 5 dernières.</div>
         <div id="stats-advanced-results"></div>
       </div>
 
       <div class="card stats-game-history-card">
-        <div class="card-title">Historique détaillé des parties 500</div>
+        <div class="card-title stats-title-with-info"><span>Historique détaillé des parties 500</span><button class="stats-info-btn" onclick="UI.openStatsInfo('history')" aria-label="Information sur l’historique détaillé">i</button></div>
         <div class="setting-sub" style="margin-bottom:12px">Liste toutes les parties correspondant aux filtres. Ouvre une partie pour consulter ses statistiques complètes et chacun de ses contrats.</div>
         <div id="stats-game-history-results"></div>
       </div>
@@ -4321,7 +4445,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.21', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.22', {
         updateViaCache: 'none'
       });
       await registration.update();

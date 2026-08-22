@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.21 : classement principal des joueurs par impact net
+ * v2.22 : points forts joueurs + aide contextuelle des statistiques
  */
 
-const CACHE_NAME = 'scorekeeper-v2.21';
+const CACHE_NAME = 'scorekeeper-v2.22';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.21',
-  './app.js?v=2.21',
+  './style.css?v=2.22',
+  './app.js?v=2.22',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
