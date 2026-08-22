@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.17 : statistiques avancées des contrats 500
+ * v2.19 : historique évolutif des statistiques 500
  */
 
-const CACHE_NAME = 'scorekeeper-v2.17';
+const CACHE_NAME = 'scorekeeper-v2.19';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.17',
-  './app.js?v=2.17',
+  './style.css?v=2.19',
+  './app.js?v=2.19',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

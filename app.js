@@ -6,7 +6,8 @@
 
 'use strict';
 
-const APP_VERSION = '2.17';
+const APP_VERSION = '2.19';
+const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
 const PASSWORD_SETTING_KEYS = {
@@ -663,6 +664,7 @@ const Games = {
         // Les partenaires sont toujours les positions 1+3 et 2+4 dans l'ordre affiché.
         tablePlayers: names.map((name, i) => ({ name, seatIdx: i, teamIdx: i % 2 })),
         defaultTeamRotation: rotationMeta,
+        statsFormulaVersions: { impactIndex: IMPACT_INDEX_FORMULA_VERSION },
         nextBidderIdx: firstBidderIdx,
         scoreLimit: 1000,
         series: {
@@ -865,6 +867,7 @@ const Games = {
         timerStartedAt: setTiming?.startedAt || null,
         timerEndedAt: setTiming?.endedAt || finishedAt,
         durationMs: setTiming?.durationMs ?? 0,
+        statsFormulaVersions: { impactIndex: IMPACT_INDEX_FORMULA_VERSION },
       };
       series.games.push(result);
       series.wins[winnerTeamIdx] = (series.wins[winnerTeamIdx] || 0) + 1;
@@ -903,6 +906,11 @@ const Games = {
       this.ensureSeries(game);
       const seats = this.ensureTableSetup(game);
       const bidder = Number.isInteger(bidderSeatIdx) ? seats[bidderSeatIdx] : null;
+      const openingBidderSeatIdx = Number.isInteger(game.nextBidderIdx) ? game.nextBidderIdx : 0;
+      const openingBidder = seats[openingBidderSeatIdx] || null;
+      const bidPosition = Number.isInteger(bidderSeatIdx)
+        ? ((bidderSeatIdx - openingBidderSeatIdx + seats.length) % seats.length) + 1
+        : null;
       const pts = this.contractPoints(game, contractKey);
       const awardedPoints = success ? pts : this.failedTeamContractPoints(game, contractKey);
       const opponentIdx = teamIdx === 0 ? 1 : 0;
@@ -920,6 +928,10 @@ const Games = {
         bidder: bidder?.name || null,
         bidderSeatIdx: bidder?.seatIdx ?? bidderSeatIdx,
         bidderTeamIdx: bidder?.teamIdx ?? teamIdx,
+        openingBidder: openingBidder?.name || null,
+        openingBidderSeatIdx,
+        bidPosition,
+        impactFormulaVersion: IMPACT_INDEX_FORMULA_VERSION,
         awardedTeam: awardedTeam.name,
         awardedTeamIdx: awardedIdx,
         contract: contractKey,
@@ -1258,6 +1270,9 @@ const Stats = {
           teams,
           winnerPlayers: teams[winnerTeamIdx]?.members || [],
           winnerTeamKey: teams[winnerTeamIdx]?.key || null,
+          winnerTeamIdx,
+          finalScores: Array.isArray(sg.finalScores) ? sg.finalScores.map(Number) : (sg.teams || []).map(t => Number(t.score) || 0),
+          durationMs: Number(sg.durationMs) || 0,
         });
       });
       return records;
@@ -1276,6 +1291,9 @@ const Stats = {
         players: teams.flatMap(t => t.members), teams,
         winnerPlayers: winnerIdx >= 0 ? teams[winnerIdx].members : [],
         winnerTeamKey: winnerIdx >= 0 ? teams[winnerIdx].key : null,
+        winnerTeamIdx: winnerIdx >= 0 ? winnerIdx : null,
+        finalScores: (game.teams || []).map(t => Number(t.score) || 0),
+        durationMs: Number(game.durationMs) || 0,
       });
       return records;
     }
@@ -1305,11 +1323,25 @@ const Stats = {
 
     if (mode === 'teams') {
       const seats = Games.fiveHundred.tablePlayers(game);
-      return history
-        .filter(e => e?.kind === 'contract' && e.bidder)
-        .map((e, idx) => {
-          let bidderSeatIdx = Number.isInteger(e.bidderSeatIdx) ? e.bidderSeatIdx : seats.findIndex(p => this.nameKey(p.name) === this.nameKey(e.bidder));
+      const records = [];
+      let openingSeatIdx = 0;
+
+      const seatIndexByName = (name) => seats.findIndex(p => this.nameKey(p.name) === this.nameKey(name));
+      const normalizeSeat = (idx) => Number.isInteger(idx) && seats.length ? ((idx % seats.length) + seats.length) % seats.length : null;
+
+      history.forEach((e, idx) => {
+        if (!e) return;
+
+        // Le premier miseur progresse après chaque résultat, incluant une partie nulle.
+        // Pour les anciennes données, on reconstruit donc la position de parole à partir
+        // du prochain miseur enregistré ou, à défaut, par rotation simple.
+        if (e.kind === 'contract' && e.bidder) {
+          let bidderSeatIdx = Number.isInteger(e.bidderSeatIdx) ? normalizeSeat(e.bidderSeatIdx) : seatIndexByName(e.bidder);
           if (bidderSeatIdx < 0) bidderSeatIdx = null;
+          const inferredOpening = Number.isInteger(e.openingBidderSeatIdx) ? normalizeSeat(e.openingBidderSeatIdx) : normalizeSeat(openingSeatIdx);
+          const bidPosition = Number.isInteger(e.bidPosition)
+            ? e.bidPosition
+            : (bidderSeatIdx === null || inferredOpening === null ? null : ((bidderSeatIdx - inferredOpening + seats.length) % seats.length) + 1);
           const seat = bidderSeatIdx === null ? null : seats[bidderSeatIdx];
           const teamIdx = Number.isInteger(e.bidderTeamIdx) ? e.bidderTeamIdx : (seat?.teamIdx ?? null);
           const members = teamIdx === null ? [] : seats.filter(p => p.teamIdx === teamIdx).map(p => p.name);
@@ -1318,7 +1350,10 @@ const Stats = {
             members,
             key: this.teamKey(members),
           };
-          return {
+          const contractPoints = Number(e.points) || Games.fiveHundred.contractPoints(game, e.contract) || 0;
+          const awardedPoints = Number(e.awardedPoints ?? e.delta) || 0;
+          const awardedTeamIdx = Number.isInteger(e.awardedTeamIdx) ? e.awardedTeamIdx : (e.success ? teamIdx : (teamIdx === null ? null : (teamIdx === 0 ? 1 : 0)));
+          records.push({
             id: `${game.id}:contract:${e.timestamp || idx}:${idx}`,
             sourceGameId: game.id,
             date: e.timestamp || game.updatedAt || game.createdAt,
@@ -1326,12 +1361,32 @@ const Stats = {
             gameLabel: '500',
             mode: 'teams',
             player: e.bidder,
+            playerKey: this.nameKey(e.bidder),
             team,
+            teamIdx,
             contract: e.contract,
+            contractPoints,
+            awardedPoints,
+            awardedTeamIdx,
             success: !!e.success,
+            netImpact: e.success ? contractPoints : -awardedPoints,
+            bidderSeatIdx,
+            openingBidderSeatIdx: inferredOpening,
+            openingBidder: e.openingBidder || (inferredOpening === null ? null : seats[inferredOpening]?.name || null),
+            bidPosition,
             seriesGameNumber: e.seriesGameNumber || null,
-          };
-        });
+            oldValue: Number(e.oldValue) || 0,
+            newValue: Number(e.newValue) || 0,
+          });
+        }
+
+        if (e.kind === 'contract' || e.kind === 'nullDeal') {
+          let next = Number.isInteger(e.nextBidderSeat) ? normalizeSeat(e.nextBidderSeat) : seatIndexByName(e.nextBidder);
+          if (next === null || next < 0) next = normalizeSeat((openingSeatIdx || 0) + 1);
+          openingSeatIdx = next ?? 0;
+        }
+      });
+      return records;
     }
 
     return history
@@ -1365,6 +1420,39 @@ const Stats = {
     const bid = m[1] === '10' ? 'Partie' : m[1];
     const suit = m[2] === 'NT' ? 'S' : m[2];
     return `${bid} ${suit}`;
+  },
+
+  impactIndex(bid = {}, imp = {}) {
+    const winPct = this.pct(imp.wins || 0, imp.games || 0);
+    const successPct = this.pct(bid.success || 0, bid.contracts || 0);
+    const successPoints = Number(bid.successPoints) || 0;
+    const failedCost = Number(bid.failedCost) || 0;
+    const valueEfficiency = (successPoints + failedCost) > 0
+      ? this.pct(successPoints, successPoints + failedCost) : 50;
+    const contributionPct = this.pct(imp.winsWithSuccess || 0, imp.wins || 0);
+    const finisherPct = this.pct(imp.decisiveWins || 0, imp.wins || 0);
+    const raw = 0.35*winPct + 0.25*successPct + 0.20*valueEfficiency + 0.10*contributionPct + 0.10*finisherPct;
+    return {
+      version: IMPACT_INDEX_FORMULA_VERSION,
+      score: raw / 10,
+      winPct, successPct, valueEfficiency, contributionPct, finisherPct,
+    };
+  },
+
+  sparklineSvg(values = []) {
+    const nums = values.map(Number).filter(Number.isFinite);
+    if (!nums.length) return '<div class="stats-spark-empty">Aucune donnée</div>';
+    const width = 300, height = 72, padX = 4, padY = 7;
+    const min = Math.min(...nums), max = Math.max(...nums);
+    const span = Math.max(0.0001, max - min);
+    const step = nums.length > 1 ? (width - 2*padX) / (nums.length - 1) : 0;
+    const pts = nums.map((v,i) => {
+      const x = padX + i*step;
+      const y = height - padY - ((v-min)/span)*(height-2*padY);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const last = pts.split(' ').pop();
+    return `<svg class="stats-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><line x1="${padX}" y1="${height-padY}" x2="${width-padX}" y2="${height-padY}" class="stats-spark-base"/><polyline points="${pts}" class="stats-spark-line"/>${last ? `<circle cx="${last.split(',')[0]}" cy="${last.split(',')[1]}" r="3.2" class="stats-spark-dot"/>` : ''}</svg>`;
   },
 
   pct(wins, games) { return games ? (wins * 100 / games) : 0; },
@@ -1880,11 +1968,30 @@ const Screens = {
         teamContracts.forEach(r => {
           const key = Stats.nameKey(r.player);
           const gamesPlayed = playerMap.get(key)?.games || teamGames.filter(g => g.players.some(n => Stats.nameKey(n) === key)).length;
-          const x = bidderMap.get(key) || { name:r.player, games:gamesPlayed, contracts:0, success:0, failed:0, types:new Set(), bold:0, boldSuccess:0 };
+          const x = bidderMap.get(key) || {
+            name:r.player, games:gamesPlayed, contracts:0, success:0, failed:0, types:new Set(), bold:0, boldSuccess:0,
+            successPoints:0, failedCost:0, netImpact:0, positions:new Map(), contractCounts:new Map(), biggestSuccess:null,
+          };
           x.games = gamesPlayed;
           x.contracts++;
-          if (r.success) x.success++; else x.failed++;
+          if (r.success) {
+            x.success++;
+            x.successPoints += Number(r.contractPoints) || 0;
+            if (!x.biggestSuccess || (Number(r.contractPoints) || 0) > x.biggestSuccess.points) {
+              x.biggestSuccess = { label:Stats.contractDisplayLabel(r.contract), points:Number(r.contractPoints) || 0, date:r.date };
+            }
+          } else {
+            x.failed++;
+            x.failedCost += Math.abs(Number(r.awardedPoints) || 0);
+          }
+          x.netImpact += Number(r.netImpact) || 0;
           x.types.add(r.contract);
+          x.contractCounts.set(r.contract, (x.contractCounts.get(r.contract) || 0) + 1);
+          if (Number.isInteger(r.bidPosition) && r.bidPosition >= 1 && r.bidPosition <= 4) {
+            const pos = x.positions.get(r.bidPosition) || { attempts:0, success:0 };
+            pos.attempts++; if (r.success) pos.success++;
+            x.positions.set(r.bidPosition, pos);
+          }
           if (Games.fiveHundred.isAnyMulotContract(r.contract) || Games.fiveHundred.isGameContract(r.contract)) {
             x.bold++;
             if (r.success) x.boldSuccess++;
@@ -1892,16 +1999,20 @@ const Screens = {
           bidderMap.set(key, x);
         });
 
-        // Impact par partie terminée : participation, part des contrats, victoires
-        // auxquelles le joueur a contribué avec au moins un contrat réussi et contrats finisseurs.
+        // Impact par partie terminée : participation, prises, contribution aux victoires,
+        // finisseurs, partenaires, adversaires et séries de victoires.
         const impactMap = new Map();
-        teamGames.forEach(gr => {
+        const chronologicalGames = teamGames.slice().sort((a,b) => new Date(a.date) - new Date(b.date));
+        chronologicalGames.forEach(gr => {
           const gContracts = contractsByGame.get(gameKey(gr)) || [];
           const finalContract = gContracts.length ? gContracts[gContracts.length - 1] : null;
           gr.players.forEach(name => {
             const pk = Stats.nameKey(name);
             if (playerFilter !== 'all' && pk !== playerFilter) return;
-            const x = impactMap.get(pk) || { name, games:0, wins:0, winsWithSuccess:0, decisiveWins:0, contracts:0, hands:0, noBidGames:0, success:0 };
+            const x = impactMap.get(pk) || {
+              name, games:0, wins:0, winsWithSuccess:0, decisiveWins:0, contracts:0, hands:0, noBidGames:0, success:0,
+              bestStreak:0, currentStreak:0, runningStreak:0, partners:new Map(), opponents:new Map(), gameResults:[],
+            };
             x.games++;
             const own = gContracts.filter(c => Stats.nameKey(c.player) === pk);
             x.contracts += own.length;
@@ -1911,15 +2022,76 @@ const Screens = {
             const won = gr.winnerPlayers.some(w => Stats.nameKey(w) === pk);
             if (won) {
               x.wins++;
+              x.runningStreak++;
+              x.bestStreak = Math.max(x.bestStreak, x.runningStreak);
               if (own.some(c => c.success)) x.winsWithSuccess++;
               if (finalContract && finalContract.success && Stats.nameKey(finalContract.player) === pk) x.decisiveWins++;
+            } else {
+              x.runningStreak = 0;
+            }
+            x.gameResults.push({ date:gr.date, won });
+
+            const ownTeam = gr.teams.find(t => t.members.some(m => Stats.nameKey(m) === pk));
+            if (ownTeam) {
+              ownTeam.members.filter(m => Stats.nameKey(m) !== pk).forEach(partner => {
+                const kk = Stats.nameKey(partner);
+                const ps = x.partners.get(kk) || { name:partner, games:0, wins:0 };
+                ps.games++; if (won) ps.wins++;
+                x.partners.set(kk, ps);
+              });
+              gr.teams.filter(t => t.key !== ownTeam.key).flatMap(t => t.members).forEach(opponent => {
+                const kk = Stats.nameKey(opponent);
+                const os = x.opponents.get(kk) || { name:opponent, games:0, wins:0 };
+                os.games++; if (won) os.wins++;
+                x.opponents.set(kk, os);
+              });
             }
             impactMap.set(pk, x);
           });
         });
+        impactMap.forEach(x => {
+          const latest = x.gameResults[x.gameResults.length - 1];
+          if (!latest?.won) x.currentStreak = 0;
+          else {
+            let streak = 0;
+            for (let i=x.gameResults.length-1; i>=0 && x.gameResults[i].won; i--) streak++;
+            x.currentStreak = streak;
+          }
+        });
+
+        // Partenariats : performance du duo et efficacité de ses contrats.
+        const partnershipMap = new Map();
+        teamGames.forEach(gr => {
+          const gContracts = contractsByGame.get(gameKey(gr)) || [];
+          gr.teams.forEach(t => {
+            if (!t?.key || !Array.isArray(t.members) || !t.members.length) return;
+            const x = partnershipMap.get(t.key) || { key:t.key, name:Stats.teamLabel(t.members), members:t.members, games:0, wins:0, contracts:0, success:0, netImpact:0 };
+            x.games++;
+            if (gr.winnerTeamKey === t.key) x.wins++;
+            const ownContracts = gContracts.filter(c => c.team?.key === t.key);
+            x.contracts += ownContracts.length;
+            x.success += ownContracts.filter(c => c.success).length;
+            x.netImpact += ownContracts.reduce((sum,c) => sum + (Number(c.netImpact) || 0), 0);
+            partnershipMap.set(t.key, x);
+          });
+        });
+
+        // Positions de parole : 1 = joueur qui ouvrait les enchères sur la donne.
+        const positionMap = new Map([1,2,3,4].map(i => [i,{ position:i, attempts:0, success:0, players:new Map() }]));
+        teamContracts.forEach(r => {
+          const pos = Number(r.bidPosition);
+          if (!positionMap.has(pos)) return;
+          const x = positionMap.get(pos);
+          x.attempts++; if (r.success) x.success++;
+          const pk = Stats.nameKey(r.player);
+          const px = x.players.get(pk) || { name:r.player, attempts:0, success:0 };
+          px.attempts++; if (r.success) px.success++;
+          x.players.set(pk,px);
+        });
 
         const eligibleBidders = [...bidderMap.values()].filter(x => x.games >= minGames);
         const eligibleImpact = [...impactMap.values()].filter(x => x.games >= minGames && x.hands > 0);
+        const eligiblePartnerships = [...partnershipMap.values()].filter(x => x.games >= minGames);
         const totalAttempts = teamContracts.length;
         const mostActive = eligibleBidders.slice().sort((a,b)=>b.contracts-a.contracts || Stats.pct(b.success,b.contracts)-Stats.pct(a.success,a.contracts))[0] || null;
         const bestEfficiency = eligibleBidders.filter(x=>x.contracts>=3).sort((a,b)=>Stats.pct(b.success,b.contracts)-Stats.pct(a.success,a.contracts) || b.contracts-a.contracts)[0] || null;
@@ -1928,9 +2100,81 @@ const Screens = {
         const bestFinisher = eligibleImpact.slice().sort((a,b)=>b.decisiveWins-a.decisiveWins || b.winsWithSuccess-a.winsWithSuccess)[0] || null;
         const boldest = eligibleBidders.filter(x=>x.bold>0).sort((a,b)=>b.bold-a.bold || Stats.pct(b.boldSuccess,b.bold)-Stats.pct(a.boldSuccess,a.bold))[0] || null;
         const popular = [...contractGroups.values()].sort((a,b)=>b.attempts-a.attempts || b.success-a.success)[0] || null;
+        const bestPair = eligiblePartnerships.slice().sort((a,b)=>Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games) || b.games-a.games || b.wins-a.wins)[0] || null;
+        const bestNet = eligibleBidders.slice().sort((a,b)=>b.netImpact-a.netImpact || b.successPoints-a.successPoints)[0] || null;
+
+        // Indice d'impact 0-10, formule versionnée pour préserver la comparabilité historique.
+        const impactIndex = (bid, imp) => Stats.impactIndex(bid, imp);
+
+        const metricsForPlayerGames = (pk, name, gameSlice) => {
+          const imp = { name, games:0, wins:0, winsWithSuccess:0, decisiveWins:0, contracts:0, hands:0, noBidGames:0 };
+          const bid = { name, contracts:0, success:0, failed:0, successPoints:0, failedCost:0, netImpact:0, attemptedPoints:0 };
+          let currentStreak = 0;
+          let bestStreak = 0;
+          (gameSlice || []).forEach(gr => {
+            if (!gr.players.some(n => Stats.nameKey(n) === pk)) return;
+            imp.games++;
+            const gc = contractsByGame.get(gameKey(gr)) || [];
+            const own = gc.filter(c => Stats.nameKey(c.player) === pk);
+            const finalContract = gc.length ? gc[gc.length - 1] : null;
+            imp.contracts += own.length;
+            imp.hands += gc.length;
+            if (!own.length) imp.noBidGames++;
+            bid.contracts += own.length;
+            own.forEach(c => {
+              const pts = Number(c.contractPoints) || 0;
+              bid.attemptedPoints += pts;
+              if (c.success) { bid.success++; bid.successPoints += pts; }
+              else { bid.failed++; bid.failedCost += Math.abs(Number(c.awardedPoints) || 0); }
+              bid.netImpact += Number(c.netImpact) || 0;
+            });
+            const won = gr.winnerPlayers.some(w => Stats.nameKey(w) === pk);
+            if (won) {
+              imp.wins++;
+              currentStreak++;
+              bestStreak = Math.max(bestStreak, currentStreak);
+              if (own.some(c => c.success)) imp.winsWithSuccess++;
+              if (finalContract?.success && Stats.nameKey(finalContract.player) === pk) imp.decisiveWins++;
+            } else currentStreak = 0;
+          });
+          const idx = impactIndex(bid, imp);
+          return {
+            ...idx, imp, bid,
+            netImpact: bid.netImpact,
+            takeRate: Stats.pct(bid.contracts, imp.hands),
+            avgContractValue: bid.contracts ? bid.attemptedPoints / bid.contracts : 0,
+            currentStreak, bestStreak,
+          };
+        };
+
+        const evolutionForPlayer = (pk, name) => {
+          const playerGames = chronologicalGames.filter(gr => gr.players.some(n => Stats.nameKey(n) === pk));
+          const snapshots = playerGames.map((gr, i) => {
+            const m = metricsForPlayerGames(pk, name, playerGames.slice(0, i + 1));
+            return { date:gr.date, games:m.imp.games, score:m.score, winPct:m.winPct, successPct:m.successPct, netImpact:m.netImpact, takeRate:m.takeRate, avgContractValue:m.avgContractValue };
+          });
+          const career = metricsForPlayerGames(pk, name, playerGames);
+          const last10 = metricsForPlayerGames(pk, name, playerGames.slice(-10));
+          const last5 = metricsForPlayerGames(pk, name, playerGames.slice(-5));
+          const validPeaks = snapshots.filter(x => x.games >= 3);
+          const peakImpact = validPeaks.slice().sort((a,b)=>b.score-a.score)[0] || null;
+          const peakWinPct = validPeaks.slice().sort((a,b)=>b.winPct-a.winPct)[0] || null;
+          const latest = snapshots[snapshots.length-1] || null;
+          const prior5 = snapshots.length > 5 ? snapshots[snapshots.length-6] : null;
+          const delta5 = latest && prior5 ? latest.score - prior5.score : null;
+          return { playerGames, snapshots, career, last10, last5, peakImpact, peakWinPct, delta5 };
+        };
+        const impactIndexRows = eligibleImpact.map(imp => {
+          const bid = bidderMap.get(Stats.nameKey(imp.name)) || { success:0, contracts:0, successPoints:0, failedCost:0, netImpact:0 };
+          return { name:imp.name, imp, bid, ...impactIndex(bid,imp) };
+        }).sort((a,b)=>b.score-a.score || b.imp.games-a.imp.games);
+        const bestImpactIndex = impactIndexRows[0] || null;
 
         const kpi = (title, name, detail) => `<div class="stats-kpi"><span>${Utils.esc(title)}</span><strong>${Utils.esc(name || 'N/D')}</strong><small>${Utils.esc(detail || '')}</small></div>`;
         const kpis = [
+          kpi('Meilleur duo', bestPair?.name, bestPair ? `${bestPair.wins}/${bestPair.games} victoires · ${Stats.pct(bestPair.wins,bestPair.games).toFixed(1)} %` : ''),
+          kpi('Indice d’impact', bestImpactIndex?.name, bestImpactIndex ? `${bestImpactIndex.score.toFixed(1)}/10` : ''),
+          kpi('Meilleur impact net', bestNet?.name, bestNet ? `${Utils.signed(bestNet.netImpact)} pts sur ses contrats` : ''),
           kpi('Contrat le plus fréquent', popular?.label, popular ? `${popular.attempts} tentative(s) · ${Stats.pct(popular.attempts,totalAttempts).toFixed(1)} % des contrats` : ''),
           kpi('Prend le plus souvent', mostActive?.name, mostActive ? `${mostActive.contracts} contrat(s) · ${Stats.pct(mostActive.contracts,totalAttempts).toFixed(1)} % du total filtré` : ''),
           kpi('Meilleure efficacité', bestEfficiency?.name, bestEfficiency ? `${bestEfficiency.success}/${bestEfficiency.contracts} réussis · ${Stats.pct(bestEfficiency.success,bestEfficiency.contracts).toFixed(1)} %` : 'Minimum 3 contrats'),
@@ -1942,10 +2186,17 @@ const Screens = {
 
         const bidderRows = eligibleBidders.slice().sort((a,b)=>b.contracts-a.contracts || Stats.pct(b.success,b.contracts)-Stats.pct(a.success,a.contracts) || a.name.localeCompare(b.name,'fr-CA'));
         const bidderHtml = bidderRows.length ? `
-          <div class="stats-advanced-table stats-advanced-table-4">
-            <div class="stats-advanced-head"><span>Joueur</span><span>Pris</span><span>R/P</span><span>Réussite</span></div>
-            ${bidderRows.map(x => `<div class="stats-advanced-row"><div><strong>${Utils.esc(x.name)}</strong><small>${x.types.size} type(s) différent(s)</small></div><div>${x.contracts}</div><div>${x.success}/${x.failed}</div><div class="stats-pct">${Stats.pct(x.success,x.contracts).toFixed(1)} %</div></div>`).join('')}
+          <div class="stats-advanced-table stats-advanced-table-5">
+            <div class="stats-advanced-head"><span>Joueur</span><span>Pris</span><span>R/P</span><span>Réussite</span><span>Net</span></div>
+            ${bidderRows.map(x => `<div class="stats-advanced-row"><div><strong>${Utils.esc(x.name)}</strong><small>${x.types.size} type(s) différent(s)</small></div><div>${x.contracts}</div><div>${x.success}/${x.failed}</div><div class="stats-pct">${Stats.pct(x.success,x.contracts).toFixed(1)} %</div><div class="${x.netImpact >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(x.netImpact)}</div></div>`).join('')}
           </div>` : `<div class="empty-state-text">Aucun joueur ne satisfait le minimum de parties.</div>`;
+
+        const partnershipRows = eligiblePartnerships.slice().sort((a,b)=>Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games) || b.games-a.games || b.netImpact-a.netImpact);
+        const partnershipHtml = partnershipRows.length ? `
+          <div class="stats-advanced-table stats-partnership-table">
+            <div class="stats-advanced-head"><span>Duo</span><span>V/G</span><span>%</span><span>Contrats</span><span>Net</span></div>
+            ${partnershipRows.map(x => `<div class="stats-advanced-row"><div><strong>${Utils.esc(x.name)}</strong><small>${x.success}/${x.contracts} contrats réussis</small></div><div>${x.wins}/${x.games}</div><div class="stats-pct">${Stats.pct(x.wins,x.games).toFixed(1)} %</div><div>${x.contracts}</div><div class="${x.netImpact >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(x.netImpact)}</div></div>`).join('')}
+          </div>` : `<div class="empty-state-text">Aucun duo ne satisfait le minimum de parties.</div>`;
 
         const impactRows = eligibleImpact.slice().sort((a,b)=>b.winsWithSuccess-a.winsWithSuccess || b.decisiveWins-a.decisiveWins || a.name.localeCompare(b.name,'fr-CA'));
         const impactHtml = impactRows.length ? `
@@ -1953,6 +2204,116 @@ const Screens = {
             <div class="stats-advanced-head"><span>Joueur</span><span>Impact V</span><span>Finisseur</span><span>Part prise</span></div>
             ${impactRows.map(x => `<div class="stats-advanced-row"><div><strong>${Utils.esc(x.name)}</strong><small>${x.noBidGames} partie(s) sans prendre un contrat</small></div><div>${x.winsWithSuccess}/${x.wins}</div><div>${x.decisiveWins}</div><div class="stats-pct">${Stats.pct(x.contracts,x.hands).toFixed(1)} %</div></div>`).join('')}
           </div>` : `<div class="empty-state-text">Pas assez de parties terminées pour mesurer l'impact d'équipe.</div>`;
+
+        const positionRows = [...positionMap.values()].filter(x => x.attempts > 0);
+        const positionHtml = positionRows.length ? `
+          <div class="stats-advanced-table stats-position-table">
+            <div class="stats-advanced-head"><span>Position</span><span>Contrats</span><span>R</span><span>Réussite</span></div>
+            ${positionRows.map(x => {
+              const leader = [...x.players.values()].sort((a,b)=>b.attempts-a.attempts || Stats.pct(b.success,b.attempts)-Stats.pct(a.success,a.attempts))[0];
+              return `<div class="stats-advanced-row"><div><strong>${x.position}${x.position===1?'er':'e'} à parler</strong><small>${leader ? `Le plus actif : ${Utils.esc(leader.name)} (${leader.attempts})` : ''}</small></div><div>${x.attempts}</div><div>${x.success}</div><div class="stats-pct">${Stats.pct(x.success,x.attempts).toFixed(1)} %</div></div>`;
+            }).join('')}
+          </div>` : `<div class="empty-state-text">Position de parole non disponible dans ces données.</div>`;
+
+        // Records de parties.
+        const biggestSuccess = teamContracts.filter(r => r.success).sort((a,b)=>(b.contractPoints||0)-(a.contractPoints||0) || new Date(b.date)-new Date(a.date))[0] || null;
+        const timedGames = teamGames.filter(g => Number(g.durationMs) > 0);
+        const longestGame = timedGames.slice().sort((a,b)=>b.durationMs-a.durationMs)[0] || null;
+        const fastestGame = timedGames.slice().sort((a,b)=>a.durationMs-b.durationMs)[0] || null;
+        const busiestGame = teamGames.map(g => ({ game:g, contracts:(contractsByGame.get(gameKey(g)) || []).length })).sort((a,b)=>b.contracts-a.contracts)[0] || null;
+
+        let biggestComeback = null;
+        let bestSingleGameNet = null;
+        teamGames.forEach(g => {
+          const gc = contractsByGame.get(gameKey(g)) || [];
+          const winnerIdx = Number.isInteger(g.winnerTeamIdx) ? g.winnerTeamIdx : g.teams.findIndex(t => t.key === g.winnerTeamKey);
+          if (winnerIdx >= 0) {
+            const scores = [0,0];
+            let maxDeficit = 0;
+            gc.forEach(c => {
+              const opponentIdx = winnerIdx === 0 ? 1 : 0;
+              maxDeficit = Math.max(maxDeficit, Math.max(0, scores[opponentIdx] - scores[winnerIdx]));
+              if (Number.isInteger(c.awardedTeamIdx)) scores[c.awardedTeamIdx] = Math.max(0, scores[c.awardedTeamIdx] + (Number(c.awardedPoints) || 0));
+            });
+            if (!biggestComeback || maxDeficit > biggestComeback.deficit) biggestComeback = { deficit:maxDeficit, game:g };
+          }
+          const perPlayer = new Map();
+          gc.forEach(c => perPlayer.set(Stats.nameKey(c.player), (perPlayer.get(Stats.nameKey(c.player)) || 0) + (Number(c.netImpact) || 0)));
+          perPlayer.forEach((net,pk) => {
+            const name = gc.find(c => Stats.nameKey(c.player) === pk)?.player || pk;
+            if (!bestSingleGameNet || net > bestSingleGameNet.net) bestSingleGameNet = { net, name, game:g };
+          });
+        });
+        const longestStreak = eligibleImpact.slice().sort((a,b)=>b.bestStreak-a.bestStreak || b.wins-a.wins)[0] || null;
+        const recordCard = (title, main, detail='') => `<div class="stats-record"><span>${Utils.esc(title)}</span><strong>${Utils.esc(main || 'N/D')}</strong><small>${Utils.esc(detail)}</small></div>`;
+        const recordsHtml = [
+          recordCard('Plus gros contrat réussi', biggestSuccess ? `${Stats.contractDisplayLabel(biggestSuccess.contract)} · ${biggestSuccess.player}` : null, biggestSuccess ? `${biggestSuccess.contractPoints} pts · ${Utils.formatDate(biggestSuccess.date)}` : ''),
+          recordCard('Plus gros comeback', biggestComeback?.deficit ? `${biggestComeback.deficit} pts` : 'Aucun déficit majeur', biggestComeback?.deficit ? `${Utils.formatDate(biggestComeback.game.date)}` : ''),
+          recordCard('Plus de contrats dans une partie', busiestGame ? `${busiestGame.contracts} contrats` : null, busiestGame ? Utils.formatDate(busiestGame.game.date) : ''),
+          recordCard('Meilleur impact sur une partie', bestSingleGameNet ? `${bestSingleGameNet.name} · ${Utils.signed(bestSingleGameNet.net)} pts` : null, bestSingleGameNet ? Utils.formatDate(bestSingleGameNet.game.date) : ''),
+          recordCard('Plus longue série de victoires', longestStreak?.bestStreak ? `${longestStreak.name} · ${longestStreak.bestStreak}` : null, longestStreak?.bestStreak ? `${longestStreak.currentStreak} victoire(s) consécutive(s) actuellement` : ''),
+          recordCard('Partie la plus longue', longestGame ? Utils.formatDuration(longestGame.durationMs) : null, longestGame ? Utils.formatDate(longestGame.date) : ''),
+          recordCard('Partie la plus courte', fastestGame ? Utils.formatDuration(fastestGame.durationMs) : null, fastestGame ? Utils.formatDate(fastestGame.date) : ''),
+        ].join('');
+
+        // Profils détaillés par joueur.
+        const profileKeys = new Set([...impactMap.keys(), ...bidderMap.keys()]);
+        const profiles = [...profileKeys].map(pk => {
+          const imp = impactMap.get(pk) || { name:bidderMap.get(pk)?.name || pk, games:0,wins:0,winsWithSuccess:0,decisiveWins:0,contracts:0,hands:0,noBidGames:0,partners:new Map(),opponents:new Map(),bestStreak:0,currentStreak:0 };
+          const bid = bidderMap.get(pk) || { name:imp.name, contracts:0,success:0,failed:0,successPoints:0,failedCost:0,netImpact:0,contractCounts:new Map(),positions:new Map(),biggestSuccess:null };
+          const idx = impactIndex(bid,imp);
+          const partners = [...(imp.partners || new Map()).values()].sort((a,b)=>Stats.pct(b.wins,b.games)-Stats.pct(a.wins,a.games) || b.games-a.games);
+          const opponents = [...(imp.opponents || new Map()).values()].sort((a,b)=>Stats.pct(a.wins,a.games)-Stats.pct(b.wins,b.games) || b.games-a.games);
+          const favorite = [...(bid.contractCounts || new Map()).entries()].sort((a,b)=>b[1]-a[1])[0];
+          const bestPos = [...(bid.positions || new Map()).entries()].filter(([,v])=>v.attempts>0).sort((a,b)=>Stats.pct(b[1].success,b[1].attempts)-Stats.pct(a[1].success,a[1].attempts) || b[1].attempts-a[1].attempts)[0];
+          const trend = evolutionForPlayer(pk, imp.name || bid.name);
+          return { pk, name:imp.name || bid.name, imp, bid, idx, partners, opponents, favorite, bestPos, trend };
+        }).filter(x => x.imp.games >= minGames).sort((a,b)=>b.idx.score-a.idx.score || b.imp.games-a.imp.games);
+        const profilesHtml = profiles.length ? profiles.map(x => {
+          const bestPartner = x.partners[0] || null;
+          const hardOpponent = x.opponents[0] || null;
+          const favLabel = x.favorite ? Stats.contractDisplayLabel(x.favorite[0]) : 'Aucun';
+          const periodCard = (label, m) => `<div class="stats-period-card"><span>${Utils.esc(label)}</span><strong>${m.score.toFixed(1)}/10</strong><small>${m.imp.wins}/${m.imp.games} V · ${m.winPct.toFixed(1)} % · contrats ${m.successPct.toFixed(1)} % · net ${Utils.signed(m.netImpact)}</small></div>`;
+          const chartCard = (label, key, formatter) => {
+            const vals = x.trend.snapshots.map(s => Number(s[key]) || 0);
+            const last = vals.length ? vals[vals.length-1] : 0;
+            const first = vals.length ? vals[0] : 0;
+            return `<div class="stats-evolution-chart"><div class="stats-evolution-chart-head"><span>${Utils.esc(label)}</span><strong>${Utils.esc(formatter(last))}</strong></div>${Stats.sparklineSvg(vals)}<small>Début ${Utils.esc(formatter(first))} · ${vals.length} partie(s)</small></div>`;
+          };
+          const trendHtml = `<div class="stats-period-grid">${periodCard('Carrière / filtre',x.trend.career)}${periodCard('10 dernières',x.trend.last10)}${periodCard('5 dernières',x.trend.last5)}</div>
+            <details class="stats-evolution-detail"><summary>Évolution et historique</summary>
+              <div class="stats-trend-records">
+                <div><span>Record impact</span><strong>${x.trend.peakImpact ? `${x.trend.peakImpact.score.toFixed(1)}/10` : 'N/D'}</strong><small>${x.trend.peakImpact ? Utils.formatDate(x.trend.peakImpact.date) : 'Minimum 3 parties'}</small></div>
+                <div><span>Pic victoires</span><strong>${x.trend.peakWinPct ? `${x.trend.peakWinPct.winPct.toFixed(1)} %` : 'N/D'}</strong><small>${x.trend.peakWinPct ? Utils.formatDate(x.trend.peakWinPct.date) : 'Minimum 3 parties'}</small></div>
+                <div><span>Tendance 5 parties</span><strong class="${x.trend.delta5 === null || x.trend.delta5 >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${x.trend.delta5 === null ? 'N/D' : `${x.trend.delta5 >= 0 ? '+' : ''}${x.trend.delta5.toFixed(1)}`}</strong><small>Variation de l'indice</small></div>
+              </div>
+              <div class="stats-evolution-grid">
+                ${chartCard('Indice impact','score',v=>`${v.toFixed(1)}/10`)}
+                ${chartCard('Victoires','winPct',v=>`${v.toFixed(1)} %`)}
+                ${chartCard('Réussite contrats','successPct',v=>`${v.toFixed(1)} %`)}
+                ${chartCard('Impact net','netImpact',v=>`${v>=0?'+':''}${Math.round(v)} pts`)}
+                ${chartCard('Prise de contrat','takeRate',v=>`${v.toFixed(1)} %`)}
+                ${chartCard('Valeur moyenne','avgContractValue',v=>`${Math.round(v)} pts`)}
+              </div>
+            </details>`;
+          return `<details class="stats-player-profile">
+            <summary><span><strong>${Utils.esc(x.name)}</strong><small>${x.imp.wins}/${x.imp.games} victoires · ${x.bid.success}/${x.bid.contracts} contrats réussis</small></span><span class="stats-impact-badge">${x.idx.score.toFixed(1)}</span></summary>
+            <div class="stats-profile-grid">
+              <div><span>Impact net</span><strong class="${x.bid.netImpact >= 0 ? 'stats-net-positive' : 'stats-net-negative'}">${Utils.signed(x.bid.netImpact)} pts</strong></div>
+              <div><span>Réussite contrats</span><strong>${Stats.pct(x.bid.success,x.bid.contracts).toFixed(1)} %</strong></div>
+              <div><span>Contrat préféré</span><strong>${Utils.esc(favLabel)}</strong></div>
+              <div><span>Plus gros réussi</span><strong>${x.bid.biggestSuccess ? `${Utils.esc(x.bid.biggestSuccess.label)} (${x.bid.biggestSuccess.points})` : 'Aucun'}</strong></div>
+              <div><span>Meilleur partenaire</span><strong>${bestPartner ? `${Utils.esc(bestPartner.name)} · ${Stats.pct(bestPartner.wins,bestPartner.games).toFixed(1)} %` : 'N/D'}</strong></div>
+              <div><span>Adversaire difficile</span><strong>${hardOpponent ? `${Utils.esc(hardOpponent.name)} · ${Stats.pct(hardOpponent.wins,hardOpponent.games).toFixed(1)} % V` : 'N/D'}</strong></div>
+              <div><span>Série actuelle</span><strong>${x.imp.currentStreak} V</strong></div>
+              <div><span>Meilleure série</span><strong>${x.imp.bestStreak} V</strong></div>
+              <div><span>Meilleure position</span><strong>${x.bestPos ? `${x.bestPos[0]}${x.bestPos[0]===1?'er':'e'} · ${Stats.pct(x.bestPos[1].success,x.bestPos[1].attempts).toFixed(1)} %` : 'N/D'}</strong></div>
+              <div><span>Valeur efficace</span><strong>${x.idx.valueEfficiency.toFixed(1)} %</strong></div>
+            </div>
+            ${trendHtml}
+            <div class="stats-impact-formula">Indice ${x.idx.score.toFixed(1)}/10 · formule v${x.idx.version} = 35 % victoires (${x.idx.winPct.toFixed(1)}) + 25 % réussite (${x.idx.successPct.toFixed(1)}) + 20 % efficacité en points (${x.idx.valueEfficiency.toFixed(1)}) + 10 % contribution aux victoires (${x.idx.contributionPct.toFixed(1)}) + 10 % finisseurs (${x.idx.finisherPct.toFixed(1)}).</div>
+          </details>`;
+        }).join('') : `<div class="empty-state-text">Aucun profil ne satisfait le minimum de parties.</div>`;
 
         const groups = [...contractGroups.values()].sort((a,b)=>b.attempts-a.attempts || a.label.localeCompare(b.label,'fr-CA'));
         const detailsHtml = groups.map(g => {
@@ -1968,8 +2329,12 @@ const Screens = {
 
         advancedEl.innerHTML = `
           <div class="stats-advanced-grid">${kpis}</div>
-          <div class="stats-advanced-section"><div class="stats-advanced-title">Preneurs et efficacité</div>${bidderHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Partenariats</div><div class="stats-advanced-note">Compare les duos réellement formés. La rotation équilibrée permet de voir quels partenaires fonctionnent le mieux ensemble.</div>${partnershipHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Preneurs, efficacité et impact net</div><div class="stats-advanced-note">Net = points de contrats réussis moins les points concédés à l'adversaire lors des contrats perdus.</div>${bidderHtml}</div>
           <div class="stats-advanced-section"><div class="stats-advanced-title">Impact dans l'équipe</div><div class="stats-advanced-note">Impact V = victoires où le joueur a réussi au moins un contrat. Part prise = proportion des donnes où ce joueur était preneur.</div>${impactHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Position de parole</div><div class="stats-advanced-note">1er = joueur qui ouvre les enchères. La position du preneur est reconstruite sur les anciennes donnes lorsque l'historique le permet et enregistrée directement à partir de la v2.18.</div>${positionHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Profils joueurs et indice d’impact</div><div class="stats-advanced-note">Ouvre un joueur pour voir partenaires, adversaires, séries, contrats, position et la formule complète de son indice.</div>${profilesHtml}</div>
+          <div class="stats-advanced-section"><div class="stats-advanced-title">Records</div><div class="stats-record-grid">${recordsHtml}</div></div>
           <div class="stats-advanced-section"><div class="stats-advanced-title">Fréquence et historique par contrat</div><div class="stats-advanced-note">Ouvre un contrat pour voir qui l'a tenté, à quelle date et s'il a été réussi.</div>${detailsHtml}</div>`;
       }
     }
@@ -3142,6 +3507,7 @@ const UI = {
       formatVersion: 3,
       version: APP_VERSION,
       timersIncluded: true,
+      statsFormulaVersions: { impactIndex: IMPACT_INDEX_FORMULA_VERSION },
       exportedAt: new Date().toISOString(),
       data: {
         games,
@@ -3166,6 +3532,7 @@ const UI = {
     Utils.downloadJSON({
       version: APP_VERSION,
       timersIncluded: true,
+      statsFormulaVersions: { impactIndex: IMPACT_INDEX_FORMULA_VERSION },
       exportedAt: new Date().toISOString(),
       game,
     }, `partie-${game.type}-${new Date().toISOString().slice(0,10)}.json`);
@@ -3722,7 +4089,7 @@ function buildScreenHTML() {
       <div class="card"><div class="card-title">Victoires par équipe</div><div class="stats-header"><span>Équipe</span><span>V/G</span><span>%</span></div><div id="stats-team-results" class="stats-list"></div></div>
       <div class="card stats-advanced-card">
         <div class="card-title">Statistiques avancées 500</div>
-        <div class="setting-sub" style="margin-bottom:12px">Analyse les contrats réellement pris : fréquence, réussite, preneurs, impact dans les victoires d'équipe et historique daté.</div>
+        <div class="setting-sub" style="margin-bottom:12px">Analyse les contrats réellement pris, l'impact, les partenariats et l'évolution carrière / 10 dernières / 5 dernières.</div>
         <div id="stats-advanced-results"></div>
       </div>
 
@@ -3782,7 +4149,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.17', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.19', {
         updateViaCache: 'none'
       });
       await registration.update();

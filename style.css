@@ -1762,7 +1762,7 @@ body {
   .fh-contract-grid.with-open .fh-contract-value-cell strong { font-size: 11px; }
 }
 
-/* ── ScoreKeeper Pro 2.17 : statistiques avancées des contrats 500 ── */
+/* ── ScoreKeeper Pro : statistiques avancées des contrats 500 ── */
 .stats-advanced-card { overflow: visible; }
 .stats-advanced-grid {
   display:grid;
@@ -1883,3 +1883,122 @@ body {
   .stats-advanced-head,.stats-advanced-row { grid-template-columns:minmax(0,1.2fr) 38px 50px 60px; font-size:11px; }
   .stats-contract-events > div { grid-template-columns:minmax(0,1fr) 72px 48px; padding:8px 9px; }
 }
+
+/* ── ScoreKeeper Pro 2.18 : partenariats, profils, records et indice d'impact ── */
+.stats-advanced-table-5 .stats-advanced-head,
+.stats-advanced-table-5 .stats-advanced-row,
+.stats-partnership-table .stats-advanced-head,
+.stats-partnership-table .stats-advanced-row {
+  grid-template-columns:minmax(0,1.35fr) 40px 48px 56px 54px;
+}
+.stats-net-positive { color:var(--success); font-weight:800; }
+.stats-net-negative { color:var(--danger); font-weight:800; }
+.stats-record-grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+}
+.stats-record {
+  background:var(--bg-elevated);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:10px 11px;
+  min-width:0;
+}
+.stats-record span,
+.stats-profile-grid span {
+  display:block;
+  color:var(--text-secondary);
+  font-size:9px;
+  text-transform:uppercase;
+  letter-spacing:.45px;
+}
+.stats-record strong {
+  display:block;
+  margin-top:3px;
+  font-size:13px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.stats-record small {
+  display:block;
+  color:var(--accent-2);
+  font-size:9px;
+  line-height:1.35;
+  margin-top:3px;
+}
+.stats-player-profile {
+  background:var(--bg-elevated);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+}
+.stats-player-profile + .stats-player-profile { margin-top:7px; }
+.stats-player-profile summary {
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:11px 12px;
+  user-select:none;
+}
+.stats-player-profile summary::-webkit-details-marker { display:none; }
+.stats-player-profile summary > span:first-child { min-width:0; display:flex; flex-direction:column; }
+.stats-player-profile summary strong { font-size:13px; }
+.stats-player-profile summary small { color:var(--text-secondary); font-size:9px; margin-top:2px; }
+.stats-impact-badge {
+  min-width:42px;
+  height:30px;
+  padding:0 8px;
+  border-radius:999px;
+  background:var(--bg-card);
+  color:var(--accent-2);
+  font-size:12px;
+  font-weight:900;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+.stats-profile-grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+  padding:0 10px 10px;
+}
+.stats-profile-grid > div {
+  background:var(--bg-card);
+  border-radius:var(--radius-sm);
+  padding:8px 9px;
+  min-width:0;
+}
+.stats-profile-grid strong {
+  display:block;
+  margin-top:3px;
+  font-size:11px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.stats-impact-formula {
+  border-top:1px solid var(--border);
+  padding:9px 11px 11px;
+  color:var(--text-secondary);
+  font-size:9px;
+  line-height:1.5;
+}
+@media (max-width:430px) {
+  .stats-advanced-table-5 .stats-advanced-head,
+  .stats-advanced-table-5 .stats-advanced-row,
+  .stats-partnership-table .stats-advanced-head,
+  .stats-partnership-table .stats-advanced-row {
+    grid-template-columns:minmax(0,1.15fr) 34px 42px 50px 46px;
+    gap:4px;
+    font-size:10px;
+  }
+  .stats-record-grid { grid-template-columns:1fr; }
+  .stats-profile-grid { grid-template-columns:1fr 1fr; }
+}
+\n\n/* ── ScoreKeeper Pro 2.19 : historique évolutif des statistiques ── */\n.stats-period-grid {\n  display:grid;\n  grid-template-columns:repeat(3,minmax(0,1fr));\n  gap:7px;\n  padding:0 10px 10px;\n}\n.stats-period-card {\n  background:var(--bg-card);\n  border:1px solid var(--border);\n  border-radius:var(--radius-sm);\n  padding:8px 9px;\n  min-width:0;\n}\n.stats-period-card span,\n.stats-trend-records span {\n  display:block;\n  color:var(--text-secondary);\n  font-size:8px;\n  text-transform:uppercase;\n  letter-spacing:.4px;\n}\n.stats-period-card strong { display:block; margin-top:2px; color:var(--accent-2); font-size:13px; }\n.stats-period-card small { display:block; margin-top:2px; color:var(--text-secondary); font-size:8px; line-height:1.35; }\n.stats-evolution-detail { margin:0 10px 10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }\n.stats-evolution-detail > summary { list-style:none; cursor:pointer; padding:9px 10px; font-size:10px; font-weight:800; color:var(--accent-2); }\n.stats-evolution-detail > summary::-webkit-details-marker { display:none; }\n.stats-trend-records { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; padding:0 9px 9px; }\n.stats-trend-records > div { background:var(--bg-elevated); border-radius:var(--radius-sm); padding:7px 8px; min-width:0; }\n.stats-trend-records strong { display:block; font-size:11px; margin-top:2px; }\n.stats-trend-records small { display:block; color:var(--text-secondary); font-size:8px; margin-top:2px; }\n.stats-evolution-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; padding:0 9px 9px; }\n.stats-evolution-chart { background:var(--bg-elevated); border-radius:var(--radius-sm); padding:8px; min-width:0; }\n.stats-evolution-chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:6px; margin-bottom:3px; }\n.stats-evolution-chart-head span { color:var(--text-secondary); font-size:8px; text-transform:uppercase; letter-spacing:.35px; }\n.stats-evolution-chart-head strong { font-size:10px; color:var(--text-primary); white-space:nowrap; }\n.stats-evolution-chart small { display:block; margin-top:2px; color:var(--text-secondary); font-size:7px; }\n.stats-sparkline { width:100%; height:54px; display:block; color:var(--accent-2); overflow:visible; }\n.stats-spark-base { stroke:var(--border); stroke-width:1; }\n.stats-spark-line { fill:none; stroke:currentColor; stroke-width:2.2; vector-effect:non-scaling-stroke; }\n.stats-spark-dot { fill:currentColor; }\n.stats-spark-empty { height:54px; display:flex; align-items:center; justify-content:center; color:var(--text-secondary); font-size:8px; }\n@media (max-width:430px) {\n  .stats-period-grid { grid-template-columns:1fr; }\n  .stats-trend-records { grid-template-columns:1fr 1fr 1fr; }\n  .stats-evolution-grid { grid-template-columns:1fr; }\n}\n
