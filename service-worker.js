@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.23 : correction des fenêtres d’information statistiques (modale globale)
+ * v2.24 : priorité des points forts : impact net, puis indice d’impact
  */
 
-const CACHE_NAME = 'scorekeeper-v2.23';
+const CACHE_NAME = 'scorekeeper-v2.24';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.23',
-  './app.js?v=2.23',
+  './style.css?v=2.24',
+  './app.js?v=2.24',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

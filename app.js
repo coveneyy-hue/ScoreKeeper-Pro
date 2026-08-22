@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.23';
+const APP_VERSION = '2.24';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1999,7 +1999,7 @@ const Screens = {
           strengthNames.forEach(name => {
           const pk = Stats.nameKey(name);
           if (playerFilter !== 'all' && pk !== playerFilter) return;
-          const x = sPlayers.get(pk) || { name, games:0, wins:0, contracts:0, success:0, failed:0, netImpact:0, hands:0, decisiveWins:0, bold:0, boldSuccess:0, types:new Set() };
+          const x = sPlayers.get(pk) || { name, games:0, wins:0, winsWithSuccess:0, contracts:0, success:0, failed:0, successPoints:0, failedCost:0, netImpact:0, hands:0, decisiveWins:0, bold:0, boldSuccess:0, types:new Set() };
           x.games++;
           if ((gr.winnerPlayers || []).some(w => Stats.nameKey(w) === pk)) x.wins++;
           sPlayers.set(pk,x);
@@ -2010,7 +2010,9 @@ const Screens = {
         baseContractRecords.forEach(c => {
           const gk=sgk(c); if(!scbg.has(gk)) scbg.set(gk,[]); scbg.get(gk).push(c);
           const x=sPlayers.get(Stats.nameKey(c.player)); if(!x) return;
-          x.contracts++; if(c.success)x.success++; else x.failed++;
+          x.contracts++;
+          if(c.success) { x.success++; x.successPoints += Number(c.contractPoints)||0; }
+          else { x.failed++; x.failedCost += Math.abs(Number(c.awardedPoints)||0); }
           x.netImpact += Number(c.netImpact)||0; x.types.add(c.contract);
           if (Games.fiveHundred.isAnyMulotContract(c.contract) || Games.fiveHundred.isGameContract(c.contract)) { x.bold++; if(c.success)x.boldSuccess++; }
         });
@@ -2018,7 +2020,10 @@ const Screens = {
         sGames.forEach(gr=>{
           const gc=scbg.get(sgk(gr))||[]; const last=gc.length?gc[gc.length-1]:null;
           (gr.players||[]).forEach(name=>{ const x=sPlayers.get(Stats.nameKey(name)); if(!x)return; x.hands += gc.length;
-            if(last?.success && Stats.nameKey(last.player)===Stats.nameKey(name) && (gr.winnerPlayers||[]).some(w=>Stats.nameKey(w)===Stats.nameKey(name))) x.decisiveWins++;
+            const pk = Stats.nameKey(name);
+            const won = (gr.winnerPlayers||[]).some(w=>Stats.nameKey(w)===pk);
+            if(won && gc.some(c=>c.success && Stats.nameKey(c.player)===pk)) x.winsWithSuccess++;
+            if(last?.success && Stats.nameKey(last.player)===pk && won) x.decisiveWins++;
           });
         });
         const rows=[...sPlayers.values()].filter(x=>x.games>=minGames);
@@ -2027,15 +2032,29 @@ const Screens = {
           let below=0,equal=0; nums.forEach(n=>{if(n<val)below++; else if(Math.abs(n-val)<1e-9)equal++;});
           return (below + Math.max(0,equal-1)/2) / Math.max(1,nums.length-1);
         };
+        rows.forEach(x => {
+          x.impactIndex = Stats.impactIndex(
+            { success:x.success, contracts:x.contracts, successPoints:x.successPoints, failedCost:x.failedCost },
+            { games:x.games, wins:x.wins, winsWithSuccess:x.winsWithSuccess, decisiveWins:x.decisiveWins }
+          ).score;
+        });
         const values={
-          net: rows.map(x=>x.netImpact), win: rows.map(x=>Stats.pct(x.wins,x.games)),
+          net: rows.map(x=>x.netImpact), impactIndex: rows.map(x=>x.impactIndex), win: rows.map(x=>Stats.pct(x.wins,x.games)),
           success: rows.filter(x=>x.contracts>=3).map(x=>Stats.pct(x.success,x.contracts)),
           take: rows.filter(x=>x.hands>0).map(x=>Stats.pct(x.contracts,x.hands)),
           finish: rows.map(x=>x.decisiveWins), bold: rows.map(x=>x.boldSuccess), types: rows.map(x=>x.types.size)
         };
+        const bestNet = rows.length ? Math.max(...rows.map(x=>x.netImpact)) : null;
+        const bestImpactIndex = rows.length ? Math.max(...rows.map(x=>x.impactIndex)) : null;
         const chooseStrength=x=>{
+          // Priorité absolue : 1) meilleur impact net, 2) meilleur indice d’impact, 3) autres forces relatives.
+          if(bestNet !== null && Math.abs(x.netImpact-bestNet)<1e-9) {
+            return {title:'Producteur de points',icon:'⚡',detail:`Impact net ${Utils.signed(x.netImpact)} pts : c’est le meilleur impact net parmi les joueurs admissibles dans les filtres actuels.`};
+          }
+          if(bestImpactIndex !== null && Math.abs(x.impactIndex-bestImpactIndex)<1e-9) {
+            return {title:'Meilleur indice d’impact',icon:'⭐',detail:`Indice d’impact ${x.impactIndex.toFixed(1)}/10 : c’est le meilleur score global, combinant victoires, réussite, efficacité en points, contribution aux victoires et contrats finisseurs.`};
+          }
           const c=[];
-          c.push({score:pctRank(values.net,x.netImpact)+0.04,title:'Producteur de points',icon:'⚡',detail:`Impact net ${Utils.signed(x.netImpact)} pts : ses contrats ont produit plus de valeur nette que ses échecs n'en ont coûté.`});
           c.push({score:pctRank(values.win,Stats.pct(x.wins,x.games)),title:'Gagnant régulier',icon:'🏆',detail:`${x.wins}/${x.games} victoires (${Stats.pct(x.wins,x.games).toFixed(1)} %) : son principal point fort est de convertir ses parties en victoires.`});
           if(x.contracts>=3)c.push({score:pctRank(values.success,Stats.pct(x.success,x.contracts))+0.02,title:'Précis au contrat',icon:'🎯',detail:`${x.success}/${x.contracts} contrats réussis (${Stats.pct(x.success,x.contracts).toFixed(1)} %) : il transforme efficacement ses prises de contrat.`});
           if(x.hands>0)c.push({score:pctRank(values.take,Stats.pct(x.contracts,x.hands)),title:'Meneur des enchères',icon:'📣',detail:`Il prend ${Stats.pct(x.contracts,x.hands).toFixed(1)} % des contrats disponibles lorsqu'il joue : il assume souvent la responsabilité de la donne.`});
@@ -3867,7 +3886,7 @@ const UI = {
   openStatsInfo(key) {
     const infos = {
       impactRanking: ['Classement par impact net', 'Classement principal du 500 en équipes. Impact net = points produits par les contrats réussis moins les points concédés à l’adversaire lors des contrats perdus. Le trophée va au meilleur impact net.'],
-      strengths: ['Points forts des joueurs', 'L’application compare plusieurs dimensions entre les joueurs admissibles : impact net, victoires, réussite des contrats, fréquence de prise, contrats finisseurs, gros contrats réussis et polyvalence. Elle retient pour chacun la dimension où il se distingue le plus par rapport aux autres joueurs dans les filtres actuels.'],
+      strengths: ['Points forts des joueurs', 'Priorité de sélection : 1) meilleur impact net, 2) meilleur indice d’impact, puis les autres forces relatives comme les victoires, la réussite des contrats, la fréquence de prise, les contrats finisseurs, les gros contrats réussis et la polyvalence. Ainsi, un joueur qui domine l’indice d’impact est identifié comme tel s’il n’est pas déjà le meilleur à l’impact net.'],
       winsPlayers: ['Victoires par joueur', 'V/G = victoires sur parties jouées. Une partie d’une série compte comme une partie distincte. Ce classement mesure le résultat final, sans tenir compte directement de la valeur des contrats.'],
       winsTeams: ['Victoires par équipe', 'V/G = victoires sur parties jouées pour chaque duo. Les équipes sont comparées selon leur pourcentage de victoires dans les filtres actuels.'],
       advanced: ['Statistiques avancées 500', 'Analyse les contrats pris par les joueurs : fréquence, réussite, impact net, rôle dans les victoires, partenariats, position de parole, tendances, records et indice d’impact.'],
@@ -4447,7 +4466,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.23', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.24', {
         updateViaCache: 'none'
       });
       await registration.update();
