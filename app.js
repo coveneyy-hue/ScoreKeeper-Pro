@@ -17,6 +17,9 @@ const PASSWORD_SETTING_KEYS = {
   dataReset: 'password.dataReset',
 };
 
+const DEFAULT_FIVE_HUNDRED_NULL_POINTS = 50;
+const DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS = 50;
+
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
    ================================================================ */
@@ -166,11 +169,20 @@ const DB = {
    ================================================================ */
 
 const Security = {
-  /** Crée physiquement les mots de passe par défaut dans les paramètres. */
+  /** Crée physiquement les valeurs par défaut dans les paramètres sans écraser une valeur existante, même vide. */
   async ensureDefaults() {
     for (const key of Object.values(PASSWORD_SETTING_KEYS)) {
       const existing = await DB.get('settings', key);
       if (!existing) await DB.setSetting(key, DEFAULT_MASTER_PASSWORD);
+    }
+
+    const appDefaults = {
+      fiveHundredNullPoints: DEFAULT_FIVE_HUNDRED_NULL_POINTS,
+      fiveHundredManualAdjustPoints: DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS,
+    };
+    for (const [key, value] of Object.entries(appDefaults)) {
+      const existing = await DB.get('settings', key);
+      if (!existing) await DB.setSetting(key, value);
     }
   },
 
@@ -186,10 +198,11 @@ const Security = {
     return DB.setSetting(key, value);
   },
 
-  /** Demande et valide un mot de passe enregistré. Un mot de passe vide désactive la protection correspondante. */
+  /** Demande et valide un mot de passe enregistré. Une valeur vide désactive la protection correspondante. */
   async require(kind, message) {
     const expected = await this.get(kind);
     if (expected === '') return true;
+
     const entered = prompt(message);
     if (entered === null) return false;
     if (entered !== expected) {
@@ -1759,7 +1772,6 @@ const Screens = {
       }
     }
 
-    UI.renderFhManualAdjust();
     UI._selectedContract = null;
     UI._selectedTeam = null;
     UI.resetFhIndividualFlow();
@@ -1811,7 +1823,9 @@ const Screens = {
       if (el) el.value = '';
     });
     const nullPointsEl = document.getElementById('fh-null-points-setting');
-    if (nullPointsEl) nullPointsEl.value = await DB.getSetting('fiveHundredNullPoints', 50);
+    if (nullPointsEl) nullPointsEl.value = await DB.getSetting('fiveHundredNullPoints', DEFAULT_FIVE_HUNDRED_NULL_POINTS);
+    const manualAdjustEl = document.getElementById('fh-manual-adjust-points-setting');
+    if (manualAdjustEl) manualAdjustEl.value = await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS);
   },
 
   /* ─── Statistiques globales ─── */
@@ -2818,6 +2832,10 @@ const UI = {
   _fhSoundReady: false,
   _fhStarterTimer: null,
   _passwordSettingsUnlocked: false,
+  _fhAdjustHoldTimer: null,
+  _fhAdjustHoldInterval: null,
+  _fhAdjustLongPress: false,
+  _fhAdjustSuppressClick: false,
   _gameTimerInterval: null,
 
   timerLabel(game) {
@@ -3090,16 +3108,39 @@ const UI = {
     this.openAppModal('Informations du 500', html);
   },
 
-  /** Compatibilité avec les anciens appels : place directement le curseur dans l'ajustement intégré à la page. */
-  openFhManualAdjustModal() {
-    this.focusFhManualAdjust();
-  },
-
-  focusFhManualAdjust() {
-    const input = document.getElementById('fh-adjust-value');
-    if (!input) return;
-    input.focus();
-    input.select();
+  async openFhManualAdjustModal() {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred') return;
+    const defaultPoints = Math.max(0, parseInt(await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS), 10) || 0);
+    const passwordRequired = (await Security.get('manualAdjust')) !== '';
+    const html = `
+      <div class="setting-sub" style="margin-bottom:12px">${passwordRequired ? 'Le mot de passe d’ajustement manuel sera demandé avant la modification.' : 'La protection par mot de passe est désactivée pour les ajustements manuels.'}</div>
+      <div class="form-group">
+        <label class="form-label">Équipe ou joueur</label>
+        <select class="form-select" id="fh-modal-adjust-entity"></select>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label">Valeur de l’ajustement</label>
+        <input class="generic-delta-input" type="number" id="fh-modal-adjust-value" min="0" step="50" value="${defaultPoints}" placeholder="Points">
+      </div>
+      <div class="fh-manual-adjust-buttons">
+        <button class="btn btn-success fh-manual-adjust-btn"
+          onpointerdown="UI.fhAdjustHoldStart(1, event)"
+          onpointerup="UI.fhAdjustHoldEnd(event)"
+          onpointercancel="UI.fhAdjustHoldEnd(event)"
+          onpointerleave="UI.fhAdjustHoldEnd(event)"
+          onclick="UI.fhAdjustButtonClick(1, event)" title="Ajouter">+ Ajouter</button>
+        <button class="btn btn-danger fh-manual-adjust-btn"
+          onpointerdown="UI.fhAdjustHoldStart(-1, event)"
+          onpointerup="UI.fhAdjustHoldEnd(event)"
+          onpointercancel="UI.fhAdjustHoldEnd(event)"
+          onpointerleave="UI.fhAdjustHoldEnd(event)"
+          onclick="UI.fhAdjustButtonClick(-1, event)" title="Retirer">− Retirer</button>
+      </div>
+      <div class="setting-sub" style="margin-top:9px">Appui court : applique la valeur affichée. Appui long : modifie cette valeur par pas de 50 points.</div>
+    `;
+    this.openAppModal('Ajustement manuel / pénalité', html);
+    this.renderFhManualAdjust();
   },
 
   openFhResultModal() {
@@ -3142,10 +3183,19 @@ const UI = {
 
   async saveFhNullPointsSetting() {
     const input = document.getElementById('fh-null-points-setting');
-    const value = Math.max(0, parseInt(input?.value || '50', 10) || 0);
+    const value = Math.max(0, parseInt(input?.value || String(DEFAULT_FIVE_HUNDRED_NULL_POINTS), 10) || 0);
     await DB.setSetting('fiveHundredNullPoints', value);
     if (input) input.value = value;
     Utils.toast(`Partie nulle : ${value} points configurés`, 'success', 3000);
+  },
+
+  async saveFhManualAdjustPointsSetting() {
+    const input = document.getElementById('fh-manual-adjust-points-setting');
+    const parsed = parseInt(input?.value || String(DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS), 10);
+    const value = Number.isFinite(parsed) ? Math.max(0, parsed) : DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS;
+    await DB.setSetting('fiveHundredManualAdjustPoints', value);
+    if (input) input.value = value;
+    Utils.toast(`Ajustement manuel par défaut : ${value} points`, 'success', 3000);
   },
 
   openSettings() {
@@ -3186,8 +3236,6 @@ const UI = {
       statsReset: document.getElementById('pwd-stats')?.value ?? '',
       dataReset: document.getElementById('pwd-data')?.value ?? '',
     };
-    // Une valeur vide est volontairement permise. Elle désactive la demande de mot de passe
-    // pour l'action correspondante. Le mot de passe maître peut lui aussi être vide.
     await Promise.all(Object.entries(values).map(([kind, value]) => Security.set(kind, value)));
     UI._passwordSettingsUnlocked = false;
     Screens.render_settings();
@@ -3781,7 +3829,7 @@ const UI = {
     this.unlockFhSound();
     const game = State.currentGame;
     if (!game || game.mode !== 'teams' || game.status === 'finished') return;
-    const configuredPoints = await DB.getSetting('fiveHundredNullPoints', 50);
+    const configuredPoints = await DB.getSetting('fiveHundredNullPoints', DEFAULT_FIVE_HUNDRED_NULL_POINTS);
     const result = Games.fiveHundred.applyNullDeal(game, configuredPoints);
     await DB.save('games', game);
 
@@ -3861,34 +3909,60 @@ const UI = {
     });
   },
 
-  async fhManualAdjust(sign) {
-    const game = State.currentGame;
-    if (!game || game.type !== 'fiveHundred') return;
+  fhAdjustInputBy(delta) {
+    const input = document.getElementById('fh-modal-adjust-value') || document.getElementById('fh-adjust-value');
+    if (!input) return;
+    const current = Math.max(0, parseInt(input.value || '0', 10) || 0);
+    input.value = Math.max(0, current + delta);
+  },
 
-    const entityEl = document.getElementById('fh-adjust-entity') || document.getElementById('fh-modal-adjust-entity');
-    const input = document.getElementById('fh-adjust-value') || document.getElementById('fh-modal-adjust-value');
-    const idx = parseInt(entityEl?.value ?? 0, 10);
-    const raw = Math.abs(parseInt(input?.value || 0, 10));
+  fhAdjustHoldStart(sign, event) {
+    if (event?.button !== undefined && event.button !== 0) return;
+    this.fhAdjustHoldEnd();
+    this._fhAdjustLongPress = false;
+    this._fhAdjustSuppressClick = false;
+    this._fhAdjustHoldTimer = setTimeout(() => {
+      this._fhAdjustLongPress = true;
+      this._fhAdjustSuppressClick = true;
+      this.fhAdjustInputBy(sign * 50);
+      this._fhAdjustHoldInterval = setInterval(() => this.fhAdjustInputBy(sign * 50), 250);
+    }, 550);
+  },
 
-    // Un premier appui, alors qu'aucune valeur n'est saisie, place immédiatement
-    // le curseur dans le champ numérique au lieu d'ouvrir une fenêtre modale.
-    if (!raw) {
-      if (input) {
-        input.focus();
-        input.select();
-      }
-      Utils.toast('Saisissez la valeur, puis appuyez sur + ou −', 'info', 2400);
+  fhAdjustHoldEnd(event) {
+    if (this._fhAdjustHoldTimer) clearTimeout(this._fhAdjustHoldTimer);
+    if (this._fhAdjustHoldInterval) clearInterval(this._fhAdjustHoldInterval);
+    this._fhAdjustHoldTimer = null;
+    this._fhAdjustHoldInterval = null;
+  },
+
+  fhAdjustButtonClick(sign, event) {
+    if (this._fhAdjustSuppressClick || this._fhAdjustLongPress) {
+      if (event) event.preventDefault();
+      this._fhAdjustSuppressClick = false;
+      this._fhAdjustLongPress = false;
       return;
     }
+    this.fhManualAdjust(sign);
+  },
 
+  async fhManualAdjust(sign) {
+    const game = State.currentGame;
+    const idx = parseInt((document.getElementById('fh-modal-adjust-entity')?.value ?? document.getElementById('fh-adjust-entity')?.value ?? 0), 10);
+    const raw = Math.abs(parseInt((document.getElementById('fh-modal-adjust-value')?.value ?? document.getElementById('fh-adjust-value')?.value ?? 0), 10));
+    if (!raw) {
+      Utils.toast('Entrez un nombre de points', 'error');
+      return;
+    }
     const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour l’ajustement manuel / pénalité :');
     if (!authorized) return;
     const result = Games.fiveHundred.adjustScore(game, idx, raw * sign);
     await DB.save('games', game);
     Utils.toast(`Ajustement ${Utils.signed(result.delta)} pts`, result.delta < 0 ? 'error' : 'success');
+    const input = document.getElementById('fh-modal-adjust-value') || document.getElementById('fh-adjust-value');
+    if (input) input.value = await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS);
+    this.closeAppModal();
     Screens.render_five_hundred();
-    const nextInput = document.getElementById('fh-adjust-value');
-    if (nextInput) nextInput.value = '';
   },
 
   /* ─── GÉNÉRIQUE ─── */
@@ -4443,22 +4517,10 @@ function buildScreenHTML() {
         <button class="btn btn-primary btn-sm" onclick="UI.endGame()">Terminer</button>
       </div>
 
-      <div class="fh-action-row fh-result-action-row">
+      <div class="fh-action-row">
         <button class="btn btn-primary" onclick="UI.openFhResultModal()">✓ Partie terminée</button>
+        <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">± Ajustement manuel</button>
       </div>
-
-      <section class="card fh-inline-adjust-card" aria-label="Ajustement manuel du score">
-        <div class="card-title">Ajustement manuel</div>
-        <div class="fh-inline-adjust-grid">
-          <select class="form-select" id="fh-adjust-entity" aria-label="Équipe ou joueur à ajuster"></select>
-          <input class="generic-delta-input" type="number" inputmode="numeric" id="fh-adjust-value" min="0" step="1" value="" placeholder="Valeur" aria-label="Valeur de l'ajustement">
-        </div>
-        <div class="fh-inline-adjust-buttons">
-          <button class="btn btn-success" onclick="UI.fhManualAdjust(1)">+ Ajouter</button>
-          <button class="btn btn-danger" onclick="UI.fhManualAdjust(-1)">− Retirer</button>
-        </div>
-        <div class="setting-sub fh-inline-adjust-note">Touchez + ou −. Si la valeur est vide, le champ de saisie est activé immédiatement.</div>
-      </section>
 
       <div class="fh-end-series-zone">
         <button class="btn btn-danger btn-sm" onclick="UI.endGame()">■ Terminer la série</button>
@@ -4507,7 +4569,7 @@ function buildScreenHTML() {
       <div class="card">
         <div class="card-title">Mots de passe</div>
         <div class="setting-sub" style="margin-bottom:14px">
-          Les mots de passe sont conservés dans les paramètres de l’application et inclus dans la sauvegarde JSON complète. Sur une installation neuve, ils valent tous le mot de passe maître par défaut. Laissez un champ vide pour désactiver la demande de mot de passe correspondante.
+          Les mots de passe sont conservés dans les paramètres de l’application et inclus dans la sauvegarde JSON complète. Laissez un champ vide pour désactiver la protection correspondante. Sur une installation neuve, ils valent tous le mot de passe maître par défaut.
         </div>
 
         <div id="password-settings-unlock" style="display:flex">
@@ -4518,25 +4580,32 @@ function buildScreenHTML() {
           <div class="form-group">
             <label class="form-label">Mot de passe maître</label>
             <input class="form-input" id="pwd-master" type="password" autocomplete="new-password">
-            <div class="setting-sub">Exigé avant toute modification des mots de passe. Vide = aucun mot de passe demandé.</div>
+            <div class="setting-sub">Exigé avant toute modification des mots de passe. Vide = aucune protection maître.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Ajustement manuel / pénalité</label>
             <input class="form-input" id="pwd-manual" type="password" autocomplete="new-password">
-            <div class="setting-sub">Vide = ajustements manuels sans mot de passe.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Réinitialisation des statistiques</label>
             <input class="form-input" id="pwd-stats" type="password" autocomplete="new-password">
-            <div class="setting-sub">Vide = réinitialisation des statistiques sans mot de passe.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Réinitialisation de toutes les données</label>
             <input class="form-input" id="pwd-data" type="password" autocomplete="new-password">
-            <div class="setting-sub">Vide = réinitialisation complète sans mot de passe.</div>
           </div>
           <button class="btn btn-success" onclick="UI.savePasswordSettings()">✓ Enregistrer les mots de passe</button>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Ajustement manuel</div>
+        <div class="form-group">
+          <label class="form-label">Valeur par défaut</label>
+          <input class="form-input" id="fh-manual-adjust-points-setting" type="number" min="0" step="50" value="50">
+          <div class="setting-sub">Valeur préremplie à l’ouverture de l’ajustement manuel. Par défaut : 50 points. Un appui long sur + ou − dans la fenêtre d’ajustement modifie cette valeur par pas de 50.</div>
+        </div>
+        <button class="btn btn-success btn-sm" onclick="UI.saveFhManualAdjustPointsSetting()">✓ Enregistrer</button>
       </div>
 
       <div class="card">
@@ -4551,7 +4620,7 @@ function buildScreenHTML() {
 
       <div class="card">
         <div class="card-title">Valeurs par défaut</div>
-        <div class="setting-sub">À l’installation ou après une réinitialisation complète, les quatre protections sont initialisées avec le mot de passe maître par défaut. Le bonus de partie nulle revient à 50 points.</div>
+        <div class="setting-sub">À l’installation ou après une réinitialisation complète, les quatre protections sont initialisées avec le mot de passe maître par défaut. Le bonus de partie nulle et l’ajustement manuel par défaut reviennent à 50 points. Chaque mot de passe peut ensuite être laissé vide pour désactiver sa protection.</div>
       </div>
       <div class="bottom-safe"></div>
     </div>

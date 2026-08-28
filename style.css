@@ -2377,50 +2377,18 @@ body {
 }
 
 
-/* v2.30 - ajustement manuel directement sur la page du 500 */
-.fh-result-action-row {
-  grid-template-columns: 1fr;
-  margin-bottom: 10px;
-}
-.fh-inline-adjust-card {
-  padding: 14px;
-}
-.fh-inline-adjust-card .card-title {
-  margin-bottom: 10px;
-}
-.fh-inline-adjust-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(100px, .75fr);
-  gap: 8px;
-  align-items: center;
-}
-.fh-inline-adjust-grid .form-select,
-.fh-inline-adjust-grid .generic-delta-input {
-  min-height: 48px;
-}
-.fh-inline-adjust-buttons {
+/* v2.30 - ajustement manuel tactile */
+.fh-manual-adjust-buttons {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
-.fh-inline-adjust-buttons .btn {
-  min-width: 0;
-}
-.fh-inline-adjust-note {
-  margin-top: 8px;
-}
-@media (max-width: 380px) {
-  .fh-inline-adjust-grid {
-    grid-template-columns: 1fr;
-  }
-}
-@media (min-width: 1024px) {
-  #screen-five-hundred .fh-result-action-row {
-    grid-template-columns: 1fr;
-  }
-  #screen-five-hundred .fh-inline-adjust-card,
-  #screen-five-hundred .fh-contract-list-card {
-    grid-column: 1 / -1;
-  }
+.fh-manual-adjust-btn {
+  min-height: 58px;
+  font-size: 18px;
+  font-weight: 850;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }

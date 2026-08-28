@@ -1,6 +1,6 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.30 : mots de passe optionnels et ajustement manuel intégré au 500
+ * v2.30 : mots de passe optionnels et ajustement manuel configurable
  */
 
 const CACHE_NAME = 'scorekeeper-v2.30';
