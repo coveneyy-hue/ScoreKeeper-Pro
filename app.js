@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.29';
+const APP_VERSION = '2.30';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -186,11 +186,12 @@ const Security = {
     return DB.setSetting(key, value);
   },
 
-  /** Demande et valide un mot de passe enregistré. */
+  /** Demande et valide un mot de passe enregistré. Un mot de passe vide désactive la protection correspondante. */
   async require(kind, message) {
+    const expected = await this.get(kind);
+    if (expected === '') return true;
     const entered = prompt(message);
     if (entered === null) return false;
-    const expected = await this.get(kind);
     if (entered !== expected) {
       Utils.toast('Mot de passe incorrect', 'error', 3200);
       return false;
@@ -1758,6 +1759,7 @@ const Screens = {
       }
     }
 
+    UI.renderFhManualAdjust();
     UI._selectedContract = null;
     UI._selectedTeam = null;
     UI.resetFhIndividualFlow();
@@ -3088,23 +3090,16 @@ const UI = {
     this.openAppModal('Informations du 500', html);
   },
 
+  /** Compatibilité avec les anciens appels : place directement le curseur dans l'ajustement intégré à la page. */
   openFhManualAdjustModal() {
-    const game = State.currentGame;
-    if (!game || game.type !== 'fiveHundred') return;
-    const html = `
-      <div class="setting-sub" style="margin-bottom:12px">Le mot de passe d’ajustement manuel sera demandé avant la modification.</div>
-      <div class="form-group">
-        <label class="form-label">Équipe ou joueur</label>
-        <select class="form-select" id="fh-modal-adjust-entity"></select>
-      </div>
-      <div class="generic-input-row">
-        <input class="generic-delta-input" type="number" id="fh-modal-adjust-value" min="0" value="0" placeholder="Points">
-        <button class="btn btn-success btn-icon" onclick="UI.fhManualAdjust(1)" title="Ajouter">+</button>
-        <button class="btn btn-danger btn-icon" onclick="UI.fhManualAdjust(-1)" title="Retirer">−</button>
-      </div>
-    `;
-    this.openAppModal('Ajustement manuel / pénalité', html);
-    this.renderFhManualAdjust();
+    this.focusFhManualAdjust();
+  },
+
+  focusFhManualAdjust() {
+    const input = document.getElementById('fh-adjust-value');
+    if (!input) return;
+    input.focus();
+    input.select();
   },
 
   openFhResultModal() {
@@ -3191,11 +3186,8 @@ const UI = {
       statsReset: document.getElementById('pwd-stats')?.value ?? '',
       dataReset: document.getElementById('pwd-data')?.value ?? '',
     };
-    if (Object.values(values).some(v => !v.length)) {
-      Utils.toast('Aucun mot de passe ne peut être vide', 'error');
-      return;
-    }
-
+    // Une valeur vide est volontairement permise. Elle désactive la demande de mot de passe
+    // pour l'action correspondante. Le mot de passe maître peut lui aussi être vide.
     await Promise.all(Object.entries(values).map(([kind, value]) => Security.set(kind, value)));
     UI._passwordSettingsUnlocked = false;
     Screens.render_settings();
@@ -3871,21 +3863,32 @@ const UI = {
 
   async fhManualAdjust(sign) {
     const game = State.currentGame;
-    const idx = parseInt((document.getElementById('fh-modal-adjust-entity')?.value ?? document.getElementById('fh-adjust-entity')?.value ?? 0), 10);
-    const raw = Math.abs(parseInt((document.getElementById('fh-modal-adjust-value')?.value ?? document.getElementById('fh-adjust-value')?.value ?? 0), 10));
+    if (!game || game.type !== 'fiveHundred') return;
+
+    const entityEl = document.getElementById('fh-adjust-entity') || document.getElementById('fh-modal-adjust-entity');
+    const input = document.getElementById('fh-adjust-value') || document.getElementById('fh-modal-adjust-value');
+    const idx = parseInt(entityEl?.value ?? 0, 10);
+    const raw = Math.abs(parseInt(input?.value || 0, 10));
+
+    // Un premier appui, alors qu'aucune valeur n'est saisie, place immédiatement
+    // le curseur dans le champ numérique au lieu d'ouvrir une fenêtre modale.
     if (!raw) {
-      Utils.toast('Entrez un nombre de points', 'error');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+      Utils.toast('Saisissez la valeur, puis appuyez sur + ou −', 'info', 2400);
       return;
     }
+
     const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour l’ajustement manuel / pénalité :');
     if (!authorized) return;
     const result = Games.fiveHundred.adjustScore(game, idx, raw * sign);
     await DB.save('games', game);
     Utils.toast(`Ajustement ${Utils.signed(result.delta)} pts`, result.delta < 0 ? 'error' : 'success');
-    const input = document.getElementById('fh-modal-adjust-value') || document.getElementById('fh-adjust-value');
-    if (input) input.value = 0;
-    this.closeAppModal();
     Screens.render_five_hundred();
+    const nextInput = document.getElementById('fh-adjust-value');
+    if (nextInput) nextInput.value = '';
   },
 
   /* ─── GÉNÉRIQUE ─── */
@@ -4440,10 +4443,22 @@ function buildScreenHTML() {
         <button class="btn btn-primary btn-sm" onclick="UI.endGame()">Terminer</button>
       </div>
 
-      <div class="fh-action-row">
+      <div class="fh-action-row fh-result-action-row">
         <button class="btn btn-primary" onclick="UI.openFhResultModal()">✓ Partie terminée</button>
-        <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">± Ajustement manuel</button>
       </div>
+
+      <section class="card fh-inline-adjust-card" aria-label="Ajustement manuel du score">
+        <div class="card-title">Ajustement manuel</div>
+        <div class="fh-inline-adjust-grid">
+          <select class="form-select" id="fh-adjust-entity" aria-label="Équipe ou joueur à ajuster"></select>
+          <input class="generic-delta-input" type="number" inputmode="numeric" id="fh-adjust-value" min="0" step="1" value="" placeholder="Valeur" aria-label="Valeur de l'ajustement">
+        </div>
+        <div class="fh-inline-adjust-buttons">
+          <button class="btn btn-success" onclick="UI.fhManualAdjust(1)">+ Ajouter</button>
+          <button class="btn btn-danger" onclick="UI.fhManualAdjust(-1)">− Retirer</button>
+        </div>
+        <div class="setting-sub fh-inline-adjust-note">Touchez + ou −. Si la valeur est vide, le champ de saisie est activé immédiatement.</div>
+      </section>
 
       <div class="fh-end-series-zone">
         <button class="btn btn-danger btn-sm" onclick="UI.endGame()">■ Terminer la série</button>
@@ -4492,7 +4507,7 @@ function buildScreenHTML() {
       <div class="card">
         <div class="card-title">Mots de passe</div>
         <div class="setting-sub" style="margin-bottom:14px">
-          Les mots de passe sont conservés dans les paramètres de l’application et inclus dans la sauvegarde JSON complète. Sur une installation neuve, ils valent tous le mot de passe maître par défaut.
+          Les mots de passe sont conservés dans les paramètres de l’application et inclus dans la sauvegarde JSON complète. Sur une installation neuve, ils valent tous le mot de passe maître par défaut. Laissez un champ vide pour désactiver la demande de mot de passe correspondante.
         </div>
 
         <div id="password-settings-unlock" style="display:flex">
@@ -4503,19 +4518,22 @@ function buildScreenHTML() {
           <div class="form-group">
             <label class="form-label">Mot de passe maître</label>
             <input class="form-input" id="pwd-master" type="password" autocomplete="new-password">
-            <div class="setting-sub">Exigé avant toute modification des mots de passe.</div>
+            <div class="setting-sub">Exigé avant toute modification des mots de passe. Vide = aucun mot de passe demandé.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Ajustement manuel / pénalité</label>
             <input class="form-input" id="pwd-manual" type="password" autocomplete="new-password">
+            <div class="setting-sub">Vide = ajustements manuels sans mot de passe.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Réinitialisation des statistiques</label>
             <input class="form-input" id="pwd-stats" type="password" autocomplete="new-password">
+            <div class="setting-sub">Vide = réinitialisation des statistiques sans mot de passe.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Réinitialisation de toutes les données</label>
             <input class="form-input" id="pwd-data" type="password" autocomplete="new-password">
+            <div class="setting-sub">Vide = réinitialisation complète sans mot de passe.</div>
           </div>
           <button class="btn btn-success" onclick="UI.savePasswordSettings()">✓ Enregistrer les mots de passe</button>
         </div>
@@ -4639,7 +4657,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.29', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.30', {
         updateViaCache: 'none'
       });
       await registration.update();

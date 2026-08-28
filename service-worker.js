@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.27 : liste complète des contrats sur la page de jeu
+ * v2.30 : mots de passe optionnels et ajustement manuel intégré au 500
  */
 
-const CACHE_NAME = 'scorekeeper-v2.29';
+const CACHE_NAME = 'scorekeeper-v2.30';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.29',
-  './app.js?v=2.29',
+  './style.css?v=2.30',
+  './app.js?v=2.30',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
