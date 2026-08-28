@@ -2244,7 +2244,7 @@ body {
 .stats-recommendation > strong { font-size:12px; color:var(--text-primary); }
 .stats-recommendation > small { font-size:11px; color:var(--text-secondary); line-height:1.4; }
 
-/* v2.28 - historique des contrats pris dans la partie courante */
+/* v2.29 - contrats et ajustements manuels de la partie courante */
 .fh-contract-list-card {
   padding: 14px;
 }
@@ -2275,6 +2275,17 @@ body {
 }
 .fh-contract-history-row.is-fail {
   border-left: 3px solid var(--danger);
+}
+.fh-contract-history-row.is-manual {
+  border-left: 3px solid var(--warning);
+}
+.fh-contract-history-row.is-manual .fh-contract-history-result strong {
+  color: var(--warning);
+}
+.fh-contract-list-manual {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--warning);
 }
 .fh-contract-history-main {
   min-width: 0;

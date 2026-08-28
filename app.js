@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.28';
+const APP_VERSION = '2.29';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1141,9 +1141,11 @@ const Games = {
         timestamp: new Date().toISOString(),
         player: game.mode === 'individual' ? entity.name : undefined,
         team: game.mode === 'individual' ? undefined : entity.name,
+        entityIdx,
         oldValue: old,
         delta: appliedDelta,
         newValue: entity.score,
+        seriesGameNumber: game.mode === 'teams' ? (game.series?.gameNumber || 1) : undefined,
       });
       game.updatedAt = new Date().toISOString();
 
@@ -2943,21 +2945,40 @@ const UI = {
 
     const history = Array.isArray(game.history) ? game.history : [];
     const currentSeriesGame = game.mode === 'teams' ? (game.series?.gameNumber || 1) : null;
+    const currentSetStartedAt = game.mode === 'teams' ? game.series?.currentSetStartedAt : null;
+    const currentSetStartedMs = currentSetStartedAt ? new Date(currentSetStartedAt).getTime() : null;
 
-    // On affiche uniquement les contrats réellement pris dans la partie courante.
-    // L'historique est inversé pour présenter le plus récent en premier.
-    const contractEntries = history.filter((entry) => {
+    // Afficher les contrats et les ajustements manuels de la partie courante,
+    // du plus récent au plus vieux, selon leur ordre réel dans l'historique.
+    const entries = history.filter((entry) => {
       if (!entry) return false;
-      if (game.mode === 'teams') {
-        if (entry.kind !== 'contract') return false;
-        const entryGameNumber = Number(entry.seriesGameNumber || 1);
-        return entryGameNumber === Number(currentSeriesGame);
+
+      const isContract = game.mode === 'teams'
+        ? entry.kind === 'contract'
+        : entry.kind === 'individualRound';
+      const isManual = entry.kind === 'manual';
+      if (!isContract && !isManual) return false;
+
+      if (game.mode !== 'teams') return true;
+
+      if (Number.isFinite(Number(entry.seriesGameNumber))) {
+        return Number(entry.seriesGameNumber) === Number(currentSeriesGame);
       }
-      return entry.kind === 'individualRound';
+
+      // Compatibilité avec les ajustements manuels enregistrés avant la v2.29.
+      // Ils n'avaient pas de numéro de partie : lorsqu'une nouvelle partie de la
+      // série est en cours, on les rattache à celle-ci seulement s'ils sont postérieurs
+      // à son heure de départ.
+      if (isManual && Number.isFinite(currentSetStartedMs) && entry.timestamp) {
+        const entryMs = new Date(entry.timestamp).getTime();
+        return Number.isFinite(entryMs) && entryMs >= currentSetStartedMs;
+      }
+
+      return isContract && Number(entry.seriesGameNumber || 1) === Number(currentSeriesGame);
     }).slice().reverse();
 
-    if (!contractEntries.length) {
-      return `<div class="fh-contract-history-empty">Aucun contrat pris dans cette partie.</div>`;
+    if (!entries.length) {
+      return `<div class="fh-contract-history-empty">Aucun contrat ni ajustement manuel dans cette partie.</div>`;
     }
 
     const suitClass = (suit) => suit === '♥' ? 'suit-heart' : suit === '♦' ? 'suit-diamond' : suit === 'NT' ? 'suit-nt' : 'suit-black';
@@ -2977,30 +2998,42 @@ const UI = {
       return `<span class="fh-contract-list-bid">${bidLabel}</span><span class="fh-contract-list-suit ${suitClass(suit)}">${suitLabel}</span>`;
     };
 
-    return contractEntries.map((entry) => {
+    return entries.map((entry) => {
+      const timeLabel = entry.timestamp
+        ? new Date(entry.timestamp).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
+        : '';
+
+      if (entry.kind === 'manual') {
+        const entityName = entry.player || entry.team || 'Joueur';
+        const delta = Number(entry.delta) || 0;
+        const oldValue = Number(entry.oldValue) || 0;
+        const newValue = Number(entry.newValue) || 0;
+        return `<div class="fh-contract-list-row fh-contract-history-row is-manual">
+          <div class="fh-contract-history-main">
+            <div class="fh-contract-history-player">${Utils.esc(entityName)}</div>
+            <div class="fh-contract-list-name"><span class="fh-contract-list-manual">Ajustement manuel</span></div>
+          </div>
+          <div class="fh-contract-history-result">
+            <strong>${Utils.esc(Utils.signed(delta))} pts</strong>
+            <span>${oldValue} → ${newValue}</span>
+            ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+          </div>
+        </div>`;
+      }
+
       const playerName = entry.bidder || entry.player || entry.team || 'Joueur';
       const success = !!entry.success;
       const contract = entry.contract || '';
       const contractPoints = Number(entry.points ?? entry.contractPoints ?? Games.fiveHundred.contractPoints(game, contract)) || 0;
 
       let pointsText = `${contractPoints} pts`;
-      let detailText = success ? 'Réussi' : 'Chuté';
-
       if (game.mode === 'teams') {
         const awarded = Number(entry.awardedPoints ?? entry.delta) || 0;
-        if (success) {
-          pointsText = `+${awarded} pts`;
-        } else {
-          pointsText = `+${awarded} pts adversaires`;
-        }
+        pointsText = success ? `+${awarded} pts` : `+${awarded} pts adversaires`;
       } else if (!success) {
         const pool = Number(entry.opponentPointsPool) || 0;
         pointsText = pool > 0 ? `${pool} pts répartis` : `${contractPoints} pts`;
       }
-
-      const timeLabel = entry.timestamp
-        ? new Date(entry.timestamp).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
-        : '';
 
       return `<div class="fh-contract-list-row fh-contract-history-row ${success ? 'is-success' : 'is-fail'}">
         <div class="fh-contract-history-main">
@@ -4393,7 +4426,7 @@ function buildScreenHTML() {
       <div class="five-hundred-teams" id="fh-teams"></div>
 
       <section class="card fh-contract-list-card" aria-label="Liste des contrats">
-        <div class="card-title">Contrats pris dans cette partie</div>
+        <div class="card-title">Contrats et ajustements de cette partie</div>
         <div class="setting-sub fh-contract-list-note">Du plus récent au plus vieux.</div>
         <div class="fh-contract-list" id="fh-contract-list"></div>
       </section>
@@ -4606,7 +4639,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.28', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.29', {
         updateViaCache: 'none'
       });
       await registration.update();
