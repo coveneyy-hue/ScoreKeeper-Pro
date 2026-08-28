@@ -3,11 +3,11 @@
  * v2.27 : liste complète des contrats sur la page de jeu
  */
 
-const CACHE_NAME = 'scorekeeper-v2.27';
+const CACHE_NAME = 'scorekeeper-v2.28';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.27',
-  './app.js?v=2.27',
+  './style.css?v=2.28',
+  './app.js?v=2.28',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
