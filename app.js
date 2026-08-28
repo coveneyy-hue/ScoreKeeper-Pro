@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.26';
+const APP_VERSION = '2.27';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1730,6 +1730,9 @@ const Screens = {
       </div>
     `).join('');
 
+    const contractListEl = document.getElementById('fh-contract-list');
+    if (contractListEl) contractListEl.innerHTML = UI.fhContractListHtml();
+
     const victBanner = document.getElementById('fh-victory');
     if (winner) {
       victBanner.style.display = 'block';
@@ -2932,6 +2935,64 @@ const UI = {
           ${rows}
         </div>
       </div>`;
+  },
+
+  fhContractListHtml() {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred') return '';
+
+    const suitClass = (suit) => suit === '♥' ? 'suit-heart' : suit === '♦' ? 'suit-diamond' : suit === 'NT' ? 'suit-nt' : 'suit-black';
+    const suitLabel = (suit) => suit === 'NT' ? 'S' : suit;
+    const entries = [];
+
+    // Ordre d'enchère réel, du plus faible au plus fort.
+    for (const bid of ['7', '8', '9', '10']) {
+      if (game.mode === 'teams' && bid !== '10') {
+        const openKey = `${bid}O`;
+        entries.push({
+          key: openKey,
+          label: `${bid} ouvert`,
+          labelHtml: `<span class="fh-contract-list-bid">${bid}</span><span class="open-contract-marker">O</span>`,
+          points: Games.fiveHundred.contractPoints(game, openKey),
+          failedPoints: Games.fiveHundred.failedTeamContractPoints(game, openKey),
+          special: 'open',
+        });
+      }
+
+      for (const suit of SUITS) {
+        const key = `${bid}${suit}`;
+        const points = Games.fiveHundred.contractPoints(game, key);
+        entries.push({
+          key,
+          label: `${bid === '10' ? 'Partie' : bid} ${suit === 'NT' ? 'sans atout' : suit}`,
+          labelHtml: `<span class="fh-contract-list-bid">${bid === '10' ? 'Partie' : bid}</span><span class="fh-contract-list-suit ${suitClass(suit)}">${suitLabel(suit)}</span>`,
+          points,
+          failedPoints: game.mode === 'teams' ? Games.fiveHundred.failedTeamContractPoints(game, key) : null,
+          special: bid === '10' ? 'game' : '',
+        });
+      }
+
+      if (game.mode === 'teams' && bid === '7') {
+        entries.push({ key: FIVE_HUNDRED_MULOT.key, label: 'Mulot', labelHtml: '<span class="fh-contract-list-special">Mulot</span>', points: FIVE_HUNDRED_MULOT.points, failedPoints: FIVE_HUNDRED_MULOT.failedOpponentPoints, special: 'mulot' });
+      }
+      if (game.mode === 'teams' && bid === '9') {
+        entries.push({ key: FIVE_HUNDRED_GROS_MULOT.key, label: 'Gros Mulot', labelHtml: '<span class="fh-contract-list-special">Gros Mulot</span>', points: FIVE_HUNDRED_GROS_MULOT.points, failedPoints: FIVE_HUNDRED_GROS_MULOT.failedOpponentPoints, special: 'gros-mulot' });
+      }
+      if (game.mode === 'teams' && bid === '10') {
+        entries.push({ key: FIVE_HUNDRED_MULOT_SUPREME.key, label: 'Mulot Suprême', labelHtml: '<span class="fh-contract-list-special">Mulot Suprême</span>', points: FIVE_HUNDRED_MULOT_SUPREME.points, failedPoints: FIVE_HUNDRED_MULOT_SUPREME.failedOpponentPoints, special: 'supreme' });
+      }
+    }
+
+    return entries.map((entry) => {
+      const failHtml = game.mode === 'teams'
+        ? `<small>Échec : +${entry.failedPoints} aux adversaires</small>`
+        : '';
+      const specialClass = entry.special ? ` is-${entry.special}` : '';
+      return `<div class="fh-contract-list-row${specialClass}" title="${Utils.esc(entry.label)}">
+        <div class="fh-contract-list-name">${entry.labelHtml}</div>
+        <div class="fh-contract-list-points"><strong>${entry.points}</strong><span>pts</span>${failHtml}</div>
+      </div>`;
+    }).join('');
   },
 
   openFhInfoModal() {
@@ -4310,6 +4371,12 @@ function buildScreenHTML() {
       <div class="fh-series-inline" id="fh-series-inline"></div>
       <div class="five-hundred-teams" id="fh-teams"></div>
 
+      <section class="card fh-contract-list-card" aria-label="Liste des contrats">
+        <div class="card-title">Tous les contrats</div>
+        <div class="setting-sub fh-contract-list-note">Valeurs affichées dans l'ordre des enchères.</div>
+        <div class="fh-contract-list" id="fh-contract-list"></div>
+      </section>
+
       <div id="fh-victory" class="victory-banner" style="display:none">
         <div class="victory-trophy">🏆</div>
         <div class="victory-title">Victoire !</div>
@@ -4518,7 +4585,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.26', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.27', {
         updateViaCache: 'none'
       });
       await registration.update();
