@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.31';
+const APP_VERSION = '2.32';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -2687,7 +2687,18 @@ const Screens = {
     if (!State.currentGame) return;
     const game = State.currentGame;
     const el   = document.getElementById('history-list');
+    const titleEl = document.getElementById('history-screen-title');
 
+    // Pour le 500 en équipes, le bouton Historique sert maintenant d'historique
+    // de série : tous les contrats joués dans toutes les parties de la série,
+    // ainsi que les ajustements manuels et parties nulles qui ont affecté le score.
+    if (game.type === 'fiveHundred' && (game.mode || 'teams') === 'teams') {
+      if (titleEl) titleEl.textContent = '📋 Historique de la série';
+      el.innerHTML = UI.fhSeriesHistoryHtml();
+      return;
+    }
+
+    if (titleEl) titleEl.textContent = game.type === 'fiveHundred' ? '📋 Historique de la partie' : '📋 Historique';
     const entries = [...game.history].reverse();
     if (!entries.length) {
       el.innerHTML = `<div class="empty-state">
@@ -3094,6 +3105,156 @@ const UI = {
         </div>
       </div>`;
     }).join('');
+  },
+
+  /** Historique compact de toute la série 500, de la partie la plus récente à la plus ancienne. */
+  fhSeriesHistoryHtml() {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || (game.mode || 'teams') !== 'teams') return '';
+
+    const history = Array.isArray(game.history) ? game.history : [];
+    const relevant = history.map((entry, historyIndex) => ({ entry, historyIndex })).filter(({ entry }) => {
+      return !!entry && (entry.kind === 'contract' || entry.kind === 'manual' || entry.kind === 'nullDeal');
+    });
+
+    if (!relevant.length) {
+      return `<div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <div class="empty-state-text">Aucun contrat joué dans cette série.</div>
+      </div>`;
+    }
+
+    const suitClass = (suit) => suit === '♥' ? 'suit-heart' : suit === '♦' ? 'suit-diamond' : suit === 'NT' ? 'suit-nt' : 'suit-black';
+    const contractHtml = (key) => {
+      if (Games.fiveHundred.isMulotContract(key)) return '<span class="fh-contract-list-special">Mulot</span>';
+      if (Games.fiveHundred.isGrosMulotContract(key)) return '<span class="fh-contract-list-special">Gros Mulot</span>';
+      if (Games.fiveHundred.isMulotSupremeContract(key)) return '<span class="fh-contract-list-special">Mulot Suprême</span>';
+      if (Games.fiveHundred.isOpenContract(key)) {
+        const bid = parseInt(key, 10);
+        return `<span class="fh-contract-list-bid">${bid}</span><span class="open-contract-marker">O</span>`;
+      }
+      const match = String(key || '').match(/^(7|8|9|10)(♠|♣|♦|♥|NT)$/);
+      if (!match) return `<span class="fh-contract-list-bid">${Utils.esc(Games.fiveHundred.contractLabel(key))}</span>`;
+      const [, bid, suit] = match;
+      const bidLabel = bid === '10' ? 'Partie' : bid;
+      const suitLabel = suit === 'NT' ? 'S' : suit;
+      return `<span class="fh-contract-list-bid">${bidLabel}</span><span class="fh-contract-list-suit ${suitClass(suit)}">${suitLabel}</span>`;
+    };
+
+    // Les nouvelles entrées portent toutes seriesGameNumber. Pour les anciennes données,
+    // une entrée sans numéro est rattachée à la première partie afin de ne rien masquer.
+    const gameNumberFor = (entry) => {
+      const n = Number(entry?.seriesGameNumber);
+      return Number.isFinite(n) && n > 0 ? n : 1;
+    };
+
+    const groups = new Map();
+    relevant.forEach((item) => {
+      const n = gameNumberFor(item.entry);
+      if (!groups.has(n)) groups.set(n, []);
+      groups.get(n).push(item);
+    });
+
+    const contractCount = relevant.filter(({ entry }) => entry.kind === 'contract').length;
+    const manualCount = relevant.filter(({ entry }) => entry.kind === 'manual').length;
+    const nullCount = relevant.filter(({ entry }) => entry.kind === 'nullDeal').length;
+    const series = Games.fiveHundred.ensureSeries(game);
+    const scoreSeries = `${Number(series?.wins?.[0]) || 0}-${Number(series?.wins?.[1]) || 0}`;
+
+    const summary = `<div class="fh-series-history-summary">
+      <strong>${contractCount} contrat${contractCount === 1 ? '' : 's'}</strong>
+      <span>Série ${Utils.esc(scoreSeries)}</span>
+      ${manualCount ? `<span>${manualCount} ajustement${manualCount === 1 ? '' : 's'}</span>` : ''}
+      ${nullCount ? `<span>${nullCount} partie${nullCount === 1 ? '' : 's'} nulle${nullCount === 1 ? '' : 's'}</span>` : ''}
+    </div>`;
+
+    const renderRow = ({ entry }) => {
+      const timeLabel = entry.timestamp
+        ? new Date(entry.timestamp).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
+        : '';
+
+      if (entry.kind === 'manual') {
+        const entityName = entry.player || entry.team || 'Équipe';
+        const delta = Number(entry.delta) || 0;
+        const oldValue = Number(entry.oldValue) || 0;
+        const newValue = Number(entry.newValue) || 0;
+        return `<div class="fh-contract-list-row fh-contract-history-row is-manual">
+          <div class="fh-contract-history-main">
+            <div class="fh-contract-history-player">${Utils.esc(entityName)}</div>
+            <div class="fh-contract-list-name"><span class="fh-contract-list-manual">Ajustement manuel</span></div>
+          </div>
+          <div class="fh-contract-history-result">
+            <strong>${Utils.esc(Utils.signed(delta))} pts</strong>
+            <span>${oldValue} → ${newValue}</span>
+            ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+          </div>
+        </div>`;
+      }
+
+      if (entry.kind === 'nullDeal') {
+        const applied = Math.max(0, Number(entry.appliedPoints) || 0);
+        const detail = applied > 0 ? `+${applied} pts aux deux équipes` : '0 point ajouté';
+        return `<div class="fh-contract-list-row fh-contract-history-row is-null">
+          <div class="fh-contract-history-main">
+            <div class="fh-contract-history-player">Partie nulle</div>
+            <div class="fh-contract-list-name"><span class="fh-contract-list-manual">Donne sans contrat</span></div>
+          </div>
+          <div class="fh-contract-history-result">
+            <strong>${Utils.esc(detail)}</strong>
+            ${entry.nextBidder ? `<span>Prochaine mise : ${Utils.esc(entry.nextBidder)}</span>` : ''}
+            ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+          </div>
+        </div>`;
+      }
+
+      const success = !!entry.success;
+      const contract = entry.contract || '';
+      const playerName = entry.bidder || entry.player || entry.team || 'Preneur N/D';
+      const awarded = Number(entry.awardedPoints ?? entry.delta) || 0;
+      const awardedTeamIdx = Number.isInteger(entry.awardedTeamIdx)
+        ? entry.awardedTeamIdx
+        : (success ? entry.biddingTeamIdx : (entry.biddingTeamIdx === 0 ? 1 : 0));
+      const winnerName = entry.awardedTeam || game.teams?.[awardedTeamIdx]?.name || '';
+
+      return `<div class="fh-contract-list-row fh-contract-history-row ${success ? 'is-success' : 'is-fail'}">
+        <div class="fh-contract-history-main">
+          <div class="fh-contract-history-player">${Utils.esc(playerName)}</div>
+          <div class="fh-contract-list-name">${contractHtml(contract)}</div>
+        </div>
+        <div class="fh-contract-history-result">
+          <strong>${success ? '✓ Réussi' : '✕ Chuté'}</strong>
+          ${winnerName ? `<span>Gagnant : ${Utils.esc(winnerName)}</span>` : ''}
+          <span>+${awarded} pts</span>
+          ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+        </div>
+      </div>`;
+    };
+
+    const groupHtml = [...groups.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([gameNumber, items]) => {
+        const completed = (series?.games || []).find(g => Number(g.gameNumber) === Number(gameNumber));
+        let meta = '';
+        if (completed) {
+          const winner = completed.winnerTeamName || game.teams?.[completed.winnerTeamIdx]?.name || '';
+          const scores = Array.isArray(completed.finalScores) ? completed.finalScores.map(n => Number(n) || 0).join(' - ') : '';
+          meta = [winner ? `🏆 ${winner}` : '', scores ? `Score ${scores}` : ''].filter(Boolean).join(' · ');
+        } else if (Number(gameNumber) === Number(series?.gameNumber || 1) && !series?.finished) {
+          meta = 'En cours';
+        }
+
+        const rows = [...items].reverse().map(renderRow).join('');
+        const onlyContracts = items.filter(({ entry }) => entry.kind === 'contract').length;
+        return `<section class="fh-series-history-game">
+          <div class="fh-series-history-game-head">
+            <div><strong>Partie ${gameNumber}</strong><span>${onlyContracts} contrat${onlyContracts === 1 ? '' : 's'}</span></div>
+            ${meta ? `<small>${Utils.esc(meta)}</small>` : ''}
+          </div>
+          <div class="fh-contract-list">${rows}</div>
+        </section>`;
+      }).join('');
+
+    return `${summary}${groupHtml}`;
   },
 
   recalculateCurrentTeamSetScores() {
@@ -4868,7 +5029,7 @@ function buildScreenHTML() {
     <div class="screen" id="screen-history">
       <div class="app-header">
         <button class="btn-back" onclick="UI._historyBack()">‹</button>
-        <div class="header-title">📋 Historique</div>
+        <div class="header-title" id="history-screen-title">📋 Historique</div>
         <div class="header-actions">
           <button class="btn-back" onclick="UI.exportCurrentGame()">📤</button>
         </div>
@@ -4912,7 +5073,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.31', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.32', {
         updateViaCache: 'none'
       });
       await registration.update();
