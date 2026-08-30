@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.30';
+const APP_VERSION = '2.31';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -2959,6 +2959,29 @@ const UI = {
       </div>`;
   },
 
+  fhContractPlainLabel(contractKey) {
+    if (Games.fiveHundred.isMulotContract(contractKey)) return 'Mulot';
+    if (Games.fiveHundred.isGrosMulotContract(contractKey)) return 'Gros Mulot';
+    if (Games.fiveHundred.isMulotSupremeContract(contractKey)) return 'Mulot Suprême';
+    if (Games.fiveHundred.isOpenContract(contractKey)) return `${parseInt(contractKey, 10)} O`;
+    const match = String(contractKey || '').match(/^(7|8|9|10)(♠|♣|♦|♥|NT)$/);
+    if (!match) return Games.fiveHundred.contractLabel(contractKey);
+    const [, bid, suit] = match;
+    const bidLabel = bid === '10' ? 'Partie' : bid;
+    const suitLabel = suit === 'NT' ? 'S' : suit;
+    return `${bidLabel} ${suitLabel}`;
+  },
+
+  fhTeamContractKeysInDisplayOrder() {
+    const suits = ['♠','♣','♦','♥','NT'];
+    return [
+      '7O', ...suits.map(s => `7${s}`), FIVE_HUNDRED_MULOT.key,
+      '8O', ...suits.map(s => `8${s}`),
+      '9O', ...suits.map(s => `9${s}`), FIVE_HUNDRED_GROS_MULOT.key, FIVE_HUNDRED_MULOT_SUPREME.key,
+      ...suits.map(s => `10${s}`),
+    ];
+  },
+
   fhContractListHtml() {
     const game = State.currentGame;
     if (!game || game.type !== 'fiveHundred') return '';
@@ -2968,9 +2991,7 @@ const UI = {
     const currentSetStartedAt = game.mode === 'teams' ? game.series?.currentSetStartedAt : null;
     const currentSetStartedMs = currentSetStartedAt ? new Date(currentSetStartedAt).getTime() : null;
 
-    // Afficher les contrats et les ajustements manuels de la partie courante,
-    // du plus récent au plus vieux, selon leur ordre réel dans l'historique.
-    const entries = history.filter((entry) => {
+    const entries = history.map((entry, historyIndex) => ({ entry, historyIndex })).filter(({ entry }) => {
       if (!entry) return false;
 
       const isContract = game.mode === 'teams'
@@ -2985,17 +3006,13 @@ const UI = {
         return Number(entry.seriesGameNumber) === Number(currentSeriesGame);
       }
 
-      // Compatibilité avec les ajustements manuels enregistrés avant la v2.29.
-      // Ils n'avaient pas de numéro de partie : lorsqu'une nouvelle partie de la
-      // série est en cours, on les rattache à celle-ci seulement s'ils sont postérieurs
-      // à son heure de départ.
       if (isManual && Number.isFinite(currentSetStartedMs) && entry.timestamp) {
         const entryMs = new Date(entry.timestamp).getTime();
         return Number.isFinite(entryMs) && entryMs >= currentSetStartedMs;
       }
 
       return isContract && Number(entry.seriesGameNumber || 1) === Number(currentSeriesGame);
-    }).slice().reverse();
+    }).reverse();
 
     if (!entries.length) {
       return `<div class="fh-contract-history-empty">Aucun contrat ni ajustement manuel dans cette partie.</div>`;
@@ -3018,7 +3035,7 @@ const UI = {
       return `<span class="fh-contract-list-bid">${bidLabel}</span><span class="fh-contract-list-suit ${suitClass(suit)}">${suitLabel}</span>`;
     };
 
-    return entries.map((entry) => {
+    return entries.map(({ entry, historyIndex }) => {
       const timeLabel = entry.timestamp
         ? new Date(entry.timestamp).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
         : '';
@@ -3047,9 +3064,15 @@ const UI = {
       const contractPoints = Number(entry.points ?? entry.contractPoints ?? Games.fiveHundred.contractPoints(game, contract)) || 0;
 
       let pointsText = `${contractPoints} pts`;
+      let winnerText = '';
       if (game.mode === 'teams') {
         const awarded = Number(entry.awardedPoints ?? entry.delta) || 0;
-        pointsText = success ? `+${awarded} pts` : `+${awarded} pts adversaires`;
+        const awardedTeamIdx = Number.isInteger(entry.awardedTeamIdx)
+          ? entry.awardedTeamIdx
+          : (success ? entry.biddingTeamIdx : (entry.biddingTeamIdx === 0 ? 1 : 0));
+        const winnerName = entry.awardedTeam || game.teams?.[awardedTeamIdx]?.name || '';
+        pointsText = `+${awarded} pts`;
+        winnerText = winnerName ? `Gagnant : ${winnerName}` : '';
       } else if (!success) {
         const pool = Number(entry.opponentPointsPool) || 0;
         pointsText = pool > 0 ? `${pool} pts répartis` : `${contractPoints} pts`;
@@ -3060,13 +3083,176 @@ const UI = {
           <div class="fh-contract-history-player">${Utils.esc(playerName)}</div>
           <div class="fh-contract-list-name">${contractHtml(contract)}</div>
         </div>
-        <div class="fh-contract-history-result">
-          <strong>${success ? '✓ Réussi' : '✕ Chuté'}</strong>
-          <span>${Utils.esc(pointsText)}</span>
-          ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+        <div class="fh-contract-history-actions">
+          <div class="fh-contract-history-result">
+            <strong>${success ? '✓ Réussi' : '✕ Chuté'}</strong>
+            ${winnerText ? `<span>${Utils.esc(winnerText)}</span>` : ''}
+            <span>${Utils.esc(pointsText)}</span>
+            ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+          </div>
+          ${game.mode === 'teams' ? `<button class="fh-contract-edit-btn" type="button" onclick="UI.openFhContractEditModal(${historyIndex})" title="Modifier ce contrat" aria-label="Modifier ce contrat">✎</button>` : ''}
         </div>
       </div>`;
     }).join('');
+  },
+
+  recalculateCurrentTeamSetScores() {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    Games.fiveHundred.ensureSeries(game);
+    const currentSeriesGame = Number(game.series?.gameNumber || 1);
+    game.teams.forEach(team => { team.score = 0; });
+
+    (game.history || []).forEach((entry) => {
+      if (!entry) return;
+      const entryGame = Number(entry.seriesGameNumber || 1);
+      if (entryGame !== currentSeriesGame) return;
+
+      if (entry.kind === 'contract') {
+        const awardedTeamIdx = Number.isInteger(entry.awardedTeamIdx)
+          ? entry.awardedTeamIdx
+          : (entry.success ? entry.biddingTeamIdx : (entry.biddingTeamIdx === 0 ? 1 : 0));
+        const team = game.teams?.[awardedTeamIdx];
+        if (!team) return;
+        const awardedPoints = Number(entry.awardedPoints ?? entry.delta) || 0;
+        const oldValue = Number(team.score) || 0;
+        team.score = Math.max(0, oldValue + awardedPoints);
+        entry.awardedTeamIdx = awardedTeamIdx;
+        entry.awardedTeam = team.name;
+        entry.oldValue = oldValue;
+        entry.delta = team.score - oldValue;
+        entry.newValue = team.score;
+        return;
+      }
+
+      if (entry.kind === 'manual') {
+        let entityIdx = Number.isInteger(entry.entityIdx) ? entry.entityIdx : -1;
+        if (entityIdx < 0 || !game.teams?.[entityIdx]) {
+          entityIdx = game.teams.findIndex(team => team.name === entry.team);
+        }
+        const team = game.teams?.[entityIdx];
+        if (!team) return;
+        const requestedDelta = Number(entry.delta) || 0;
+        const oldValue = Number(team.score) || 0;
+        team.score = Math.max(0, oldValue + requestedDelta);
+        entry.entityIdx = entityIdx;
+        entry.team = team.name;
+        entry.oldValue = oldValue;
+        entry.delta = team.score - oldValue;
+        entry.newValue = team.score;
+        return;
+      }
+
+      if (entry.kind === 'nullDeal') {
+        const appliedPoints = Math.max(0, Number(entry.appliedPoints) || 0);
+        entry.before = game.teams.map(team => Number(team.score) || 0);
+        if (appliedPoints > 0) {
+          game.teams.forEach(team => { team.score = Math.max(0, (Number(team.score) || 0) + appliedPoints); });
+        }
+        entry.after = game.teams.map(team => Number(team.score) || 0);
+      }
+    });
+  },
+
+  openFhContractEditModal(historyIndex) {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    const entry = game.history?.[historyIndex];
+    if (!entry || entry.kind !== 'contract') return;
+
+    const seats = Games.fiveHundred.ensureTableSetup(game);
+    let bidderSeatIdx = Number.isInteger(entry.bidderSeatIdx) ? entry.bidderSeatIdx : seats.findIndex(p => p.name === entry.bidder);
+    if (bidderSeatIdx < 0) bidderSeatIdx = 0;
+    const bidderTeamIdx = seats[bidderSeatIdx]?.teamIdx ?? 0;
+    const winnerTeamIdx = Number.isInteger(entry.awardedTeamIdx)
+      ? entry.awardedTeamIdx
+      : (entry.success ? bidderTeamIdx : (bidderTeamIdx === 0 ? 1 : 0));
+
+    const contractOptions = this.fhTeamContractKeysInDisplayOrder().map((key) => {
+      const selected = key === entry.contract ? 'selected' : '';
+      const points = Games.fiveHundred.contractPoints(game, key);
+      return `<option value="${Utils.esc(key)}" ${selected}>${Utils.esc(this.fhContractPlainLabel(key))} · ${points} pts</option>`;
+    }).join('');
+
+    const bidderOptions = seats.map((player, idx) => `<option value="${idx}" ${idx === bidderSeatIdx ? 'selected' : ''}>${Utils.esc(player.name)} · ${Utils.esc(game.teams[player.teamIdx]?.name || '')}</option>`).join('');
+    const winnerOptions = game.teams.map((team, idx) => `<option value="${idx}" ${idx === winnerTeamIdx ? 'selected' : ''}>${Utils.esc(team.name)}</option>`).join('');
+
+    const html = `
+      <div class="setting-sub" style="margin-bottom:12px">Corrigez le contrat, le joueur qui l'a pris et l'équipe gagnante. Le score de la partie courante sera recalculé à partir de l'historique.</div>
+      <div class="form-group">
+        <label class="form-label">Contrat</label>
+        <select class="form-select" id="fh-edit-contract">${contractOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Joueur qui a pris le contrat</label>
+        <select class="form-select" id="fh-edit-bidder">${bidderOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Équipe gagnante</label>
+        <select class="form-select" id="fh-edit-winner">${winnerOptions}</select>
+      </div>
+      <button class="btn btn-primary" onclick="UI.saveFhContractEdit(${historyIndex})">✓ Enregistrer la correction</button>
+    `;
+    this.openAppModal('Modifier le contrat', html);
+  },
+
+  async saveFhContractEdit(historyIndex) {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    const entry = game.history?.[historyIndex];
+    if (!entry || entry.kind !== 'contract') return;
+
+    const contractKey = document.getElementById('fh-edit-contract')?.value;
+    const bidderSeatIdx = parseInt(document.getElementById('fh-edit-bidder')?.value ?? '-1', 10);
+    const winnerTeamIdx = parseInt(document.getElementById('fh-edit-winner')?.value ?? '-1', 10);
+    const seats = Games.fiveHundred.ensureTableSetup(game);
+    const bidder = seats[bidderSeatIdx];
+    if (!contractKey || !bidder || !game.teams?.[winnerTeamIdx]) {
+      Utils.toast('Correction invalide', 'error');
+      return;
+    }
+
+    const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour modifier un contrat :');
+    if (!authorized) return;
+
+    const biddingTeamIdx = bidder.teamIdx;
+    const success = winnerTeamIdx === biddingTeamIdx;
+    const contractPoints = Games.fiveHundred.contractPoints(game, contractKey);
+    const awardedPoints = success
+      ? contractPoints
+      : Games.fiveHundred.failedTeamContractPoints(game, contractKey);
+    const openingBidderSeatIdx = Number.isInteger(entry.openingBidderSeatIdx) ? entry.openingBidderSeatIdx : 0;
+    const bidPosition = ((bidderSeatIdx - openingBidderSeatIdx + seats.length) % seats.length) + 1;
+
+    entry.contract = contractKey;
+    entry.points = contractPoints;
+    entry.bidder = bidder.name;
+    entry.bidderSeatIdx = bidderSeatIdx;
+    entry.bidderTeamIdx = biddingTeamIdx;
+    entry.biddingTeamIdx = biddingTeamIdx;
+    entry.team = game.teams[biddingTeamIdx].name;
+    entry.bidPosition = bidPosition;
+    entry.success = success;
+    entry.awardedTeamIdx = winnerTeamIdx;
+    entry.awardedTeam = game.teams[winnerTeamIdx].name;
+    entry.awardedPoints = awardedPoints;
+    entry.lossRule = success ? null : (Games.fiveHundred.isMulotContract(contractKey)
+      ? 'mulot-225'
+      : (Games.fiveHundred.isGrosMulotContract(contractKey)
+        ? 'gros-mulot-440'
+        : (Games.fiveHundred.isMulotSupremeContract(contractKey)
+          ? 'mulot-supreme-500'
+          : (Games.fiveHundred.isGameContract(contractKey) ? 'partie-half' : 'full'))));
+    entry.editedAt = new Date().toISOString();
+    entry.edited = true;
+
+    this.recalculateCurrentTeamSetScores();
+    game.updatedAt = new Date().toISOString();
+    await DB.save('games', game);
+
+    this.closeAppModal();
+    Screens.render_five_hundred();
+    Utils.toast(`Contrat corrigé : ${this.fhContractPlainLabel(contractKey)} · ${game.teams[winnerTeamIdx].name}`, 'success', 4200);
   },
 
   openFhInfoModal() {
@@ -4504,7 +4690,7 @@ function buildScreenHTML() {
 
       <section class="card fh-contract-list-card" aria-label="Liste des contrats">
         <div class="card-title">Contrats et ajustements de cette partie</div>
-        <div class="setting-sub fh-contract-list-note">Du plus récent au plus vieux.</div>
+        <div class="setting-sub fh-contract-list-note">Du plus récent au plus vieux. Utilisez ✎ pour corriger un contrat.</div>
         <div class="fh-contract-list" id="fh-contract-list"></div>
       </section>
 
@@ -4726,7 +4912,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.30', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.31', {
         updateViaCache: 'none'
       });
       await registration.update();
