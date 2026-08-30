@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.32';
+const APP_VERSION = '2.34';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -483,11 +483,11 @@ const FIVE_HUNDRED_MULOT = {
 };
 
 // Gros Mulot : même objectif de 0 levée, mais la main du miseur est exposée
-// après la première levée. Réussite = 440 points; échec = 440 points aux adversaires.
+// après la première levée. Réussite = 320 points; échec = 320 points aux adversaires.
 const FIVE_HUNDRED_GROS_MULOT = {
   key: 'GROS_MULOT',
-  points: 440,
-  failedOpponentPoints: 440,
+  points: 320,
+  failedOpponentPoints: 320,
 };
 
 // Mulot Suprême : contrat extrême à 0 levée. Réussite = 1000 points;
@@ -912,7 +912,7 @@ const Games = {
      * Contrat normal chuté : valeur complète aux adversaires.
      * Partie chutée : 50 % de la valeur aux adversaires.
      * Mulot chuté : 225 points aux adversaires.
-     * Gros Mulot chuté : 440 points aux adversaires.
+     * Gros Mulot chuté : 320 points aux adversaires.
      * Mulot Suprême chuté : 500 points aux adversaires.
      * Une partie est gagnée dès qu'une équipe atteint 1000 points.
      */
@@ -952,7 +952,7 @@ const Games = {
         points: pts,
         awardedPoints,
         success,
-        lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-225' : (this.isGrosMulotContract(contractKey) ? 'gros-mulot-440' : (this.isMulotSupremeContract(contractKey) ? 'mulot-supreme-500' : (this.isGameContract(contractKey) ? 'partie-half' : 'full')))),
+        lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-225' : (this.isGrosMulotContract(contractKey) ? 'gros-mulot-320' : (this.isMulotSupremeContract(contractKey) ? 'mulot-supreme-500' : (this.isGameContract(contractKey) ? 'partie-half' : 'full')))),
         oldValue: oldAwarded,
         delta: awardedPoints,
         newValue: awardedTeam.score,
@@ -1243,6 +1243,9 @@ const Stats = {
   },
 
   inferWinnerName(game) {
+    // Une partie archivée explicitement sans gagnant reste une partie jouée,
+    // mais ne doit jamais créer artificiellement une victoire dans les statistiques.
+    if (game.archivedWithoutWinner) return null;
     if (game.winnerName) return game.winnerName;
     const players = game.players || [];
     if (!players.length) return null;
@@ -1573,7 +1576,7 @@ const Screens = {
             `).join('')}
           </div>
           <div class="setting-sub" style="margin-top:12px"><strong>Équipes déterminées automatiquement.</strong><br>Avec les joueurs par défaut, l'historique fait alterner les 3 partenariats possibles et le premier miseur. Les positions 1+3 affrontent les positions 2+4.</div>
-          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne seulement 50 % de sa valeur aux adversaires. Les enchères ouvertes valent 130 / 230 / 330 points pour 7 / 8 / 9. Un Mulot vaut 225 points, un Gros Mulot 440 points, et le Mulot Suprême vaut 1000 points avec 500 points aux adversaires en cas d'échec. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
+          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne seulement 50 % de sa valeur aux adversaires. Les enchères ouvertes valent 130 / 230 / 330 points pour 7 / 8 / 9. Un Mulot vaut 225 points, un Gros Mulot 320 points, et le Mulot Suprême vaut 1000 points avec 500 points aux adversaires en cas d'échec. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
         </div>
 
         <div class="card" id="fh-new-individual" style="display:none">
@@ -1826,6 +1829,20 @@ const Screens = {
     if (nullPointsEl) nullPointsEl.value = await DB.getSetting('fiveHundredNullPoints', DEFAULT_FIVE_HUNDRED_NULL_POINTS);
     const manualAdjustEl = document.getElementById('fh-manual-adjust-points-setting');
     if (manualAdjustEl) manualAdjustEl.value = await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS);
+
+    // Afficher combien de parties encore actives peuvent être archivées en une seule action.
+    const games = await DB.getAll('games');
+    const unfinishedCount = games.filter(g => g?.status === 'active').length;
+    const archiveCountEl = document.getElementById('archive-unfinished-count');
+    const archiveBtn = document.getElementById('archive-unfinished-btn');
+    if (archiveCountEl) {
+      archiveCountEl.textContent = unfinishedCount > 1
+        ? `${unfinishedCount} parties non terminées seront archivées immédiatement.`
+        : unfinishedCount === 1
+          ? '1 partie non terminée sera archivée immédiatement.'
+          : 'Aucune partie non terminée à archiver.';
+    }
+    if (archiveBtn) archiveBtn.disabled = unfinishedCount === 0;
   },
 
   /* ─── Statistiques globales ─── */
@@ -2789,7 +2806,7 @@ const Screens = {
         const ruleText = e.lossRule === 'partie-half'
           ? ' · pénalité 50 %'
           : (e.lossRule === 'mulot-supreme-500' ? ' · pénalité Mulot Suprême 500'
-            : (e.lossRule === 'gros-mulot-440' ? ' · pénalité Gros Mulot 440'
+            : ((e.lossRule === 'gros-mulot-320' || e.lossRule === 'gros-mulot-440') ? ` · pénalité Gros Mulot ${e.lossRule === 'gros-mulot-440' ? '440' : '320'}`
             : (e.lossRule === 'mulot-225' ? ' · pénalité Mulot 225'
             : (e.lossRule === 'mulot-230' ? ' · pénalité Mulot 230'
             : (e.lossRule === 'mulot-325' ? ' · pénalité Mulot 325'
@@ -2921,8 +2938,8 @@ const UI = {
 
     const grosMulotHtml = game?.mode === 'teams'
       ? (interactive
-        ? `<button class="contract-btn fh-gros-mulot-contract fh-mulot-between-row ${UI._selectedContract === FIVE_HUNDRED_GROS_MULOT.key ? 'selected' : ''}" onclick="UI.selectContract('${FIVE_HUNDRED_GROS_MULOT.key}')" data-key="${FIVE_HUNDRED_GROS_MULOT.key}"><span class="contract-inline-label"><span class="bid-text">GROS MULOT</span></span><small>440 / échec 440</small></button>`
-        : `<div class="fh-contract-value-cell fh-gros-mulot-contract fh-mulot-between-row"><span class="contract-inline-label"><span class="bid-text">GROS MULOT</span></span><strong>440</strong><small>échec : 440</small></div>`)
+        ? `<button class="contract-btn fh-gros-mulot-contract fh-mulot-between-row ${UI._selectedContract === FIVE_HUNDRED_GROS_MULOT.key ? 'selected' : ''}" onclick="UI.selectContract('${FIVE_HUNDRED_GROS_MULOT.key}')" data-key="${FIVE_HUNDRED_GROS_MULOT.key}"><span class="contract-inline-label"><span class="bid-text">GROS MULOT</span></span><small>${FIVE_HUNDRED_GROS_MULOT.points} / échec ${FIVE_HUNDRED_GROS_MULOT.failedOpponentPoints}</small></button>`
+        : `<div class="fh-contract-value-cell fh-gros-mulot-contract fh-mulot-between-row"><span class="contract-inline-label"><span class="bid-text">GROS MULOT</span></span><strong>${FIVE_HUNDRED_GROS_MULOT.points}</strong><small>échec : ${FIVE_HUNDRED_GROS_MULOT.failedOpponentPoints}</small></div>`)
       : '';
 
 
@@ -3013,16 +3030,27 @@ const UI = {
 
       if (game.mode !== 'teams') return true;
 
-      if (Number.isFinite(Number(entry.seriesGameNumber))) {
-        return Number(entry.seriesGameNumber) === Number(currentSeriesGame);
+      // Un numéro de partie explicite et positif est prioritaire.
+      // Important : Number(null) vaut 0. Les anciens ajustements pouvaient donc
+      // être masqués par erreur lorsqu'ils avaient seriesGameNumber à null.
+      const explicitSeriesGame = Number(entry.seriesGameNumber);
+      if (Number.isInteger(explicitSeriesGame) && explicitSeriesGame > 0) {
+        return explicitSeriesGame === Number(currentSeriesGame);
       }
 
-      if (isManual && Number.isFinite(currentSetStartedMs) && entry.timestamp) {
-        const entryMs = new Date(entry.timestamp).getTime();
-        return Number.isFinite(entryMs) && entryMs >= currentSetStartedMs;
+      // Compatibilité avec les ajustements plus anciens qui n'avaient pas encore
+      // de numéro de partie : les rattacher à la partie courante par leur heure.
+      if (isManual) {
+        if (Number.isFinite(currentSetStartedMs) && entry.timestamp) {
+          const entryMs = new Date(entry.timestamp).getTime();
+          return Number.isFinite(entryMs) && entryMs >= currentSetStartedMs;
+        }
+        // Dans une ancienne série sans marqueur temporel fiable, ne jamais masquer
+        // les ajustements de la première partie.
+        return Number(currentSeriesGame) === 1;
       }
 
-      return isContract && Number(entry.seriesGameNumber || 1) === Number(currentSeriesGame);
+      return Number(entry.seriesGameNumber || 1) === Number(currentSeriesGame);
     }).reverse();
 
     if (!entries.length) {
@@ -3400,7 +3428,7 @@ const UI = {
     entry.lossRule = success ? null : (Games.fiveHundred.isMulotContract(contractKey)
       ? 'mulot-225'
       : (Games.fiveHundred.isGrosMulotContract(contractKey)
-        ? 'gros-mulot-440'
+        ? 'gros-mulot-320'
         : (Games.fiveHundred.isMulotSupremeContract(contractKey)
           ? 'mulot-supreme-500'
           : (Games.fiveHundred.isGameContract(contractKey) ? 'partie-half' : 'full'))));
@@ -3448,7 +3476,7 @@ const UI = {
       <div class="fh-info-group fh-v24-rules">
         <div class="card-title">Règles 500 adaptées v2.8</div>
         <div class="setting-sub"><strong>Enchère ouverte :</strong> 7, 8 ou 9 peuvent être annoncés sans nommer l'atout avant le minou. Après avoir pris le minou, le gagnant choisit ♠, ♣, ♦, ♥ ou S, mais conserve le pointage fixe de l'enchère ouverte : 7 = 130, 8 = 230, 9 = 330. Le risque est moindre, donc le contrat rapporte moins qu'une couleur annoncée immédiatement.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Ordre clé : 7S (220) &lt; Mulot (225) &lt; 8 ouvert (230) &lt; 8♠ (240) ... 8S (320) &lt; 9 ouvert (330) &lt; 9♠ (340) ... 9S (420) &lt; Gros Mulot (440) &lt; Mulot Suprême (1000) &lt; Partie ♠ (1040). Le Mulot Suprême rapporte 1000 points s'il est réussi et donne 500 points aux adversaires s'il est chuté.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Ordre clé : 7S (220) &lt; Mulot (225) &lt; 8 ouvert (230) &lt; 8♠ (240) ... 8S (320) &lt; 9 ouvert (330) &lt; 9♠ (340) ... 9S (420) &lt; Gros Mulot (320) &lt; Mulot Suprême (1000) &lt; Partie ♠ (1040). Le Mulot Suprême rapporte 1000 points s'il est réussi et donne 500 points aux adversaires s'il est chuté.</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Partie chutée :</strong> les adversaires reçoivent 50 % de la valeur du contrat final. Exemples : Partie ♠ = 520, Partie ♥ = 550, Partie S = 560.</div>
       </div>` : ''}
     `;
@@ -3543,6 +3571,59 @@ const UI = {
     await DB.setSetting('fiveHundredManualAdjustPoints', value);
     if (input) input.value = value;
     Utils.toast(`Ajustement manuel par défaut : ${value} points`, 'success', 3000);
+  },
+
+  /** Archive immédiatement toutes les parties encore actives, sans confirmation ni question de gagnant. */
+  async archiveAllUnfinishedGames() {
+    const games = await DB.getAll('games');
+    const unfinished = games.filter(g => g?.status === 'active');
+    if (!unfinished.length) {
+      Utils.toast('Aucune partie non terminée à archiver', 'info', 3000);
+      return;
+    }
+
+    const archivedAt = new Date().toISOString();
+    const archivedIds = new Set();
+
+    for (const game of unfinished) {
+      GameTimer.migrate(game);
+
+      if (game.type === 'fiveHundred' && game.mode === 'teams') {
+        Games.fiveHundred.ensureSeries(game);
+        if (!game.series?.finished && game.series?.currentSetStartedAt) {
+          GameTimer.finishSet(game, archivedAt, game.series?.gameNumber || 1, true);
+        }
+        GameTimer.finishGame(game, archivedAt, false);
+      } else {
+        GameTimer.finishGame(game, archivedAt, true);
+      }
+
+      // L'archivage en lot ne choisit jamais de gagnant. Le marqueur empêche
+      // Stats.inferWinnerName() de transformer le score courant en victoire.
+      game.archivedWithoutWinner = true;
+      game.archivedUnfinishedAt = archivedAt;
+      game.archiveReason = 'settings-bulk-unfinished';
+      game.status = 'finished';
+      game.finishedAt = archivedAt;
+      game.updatedAt = archivedAt;
+      delete game.winnerName;
+      delete game.winnerMembers;
+      delete game.winReason;
+
+      await DB.save('games', game);
+      archivedIds.add(game.id);
+    }
+
+    if (State.currentGame && archivedIds.has(State.currentGame.id)) {
+      State.currentGame = null;
+    }
+
+    Utils.toast(
+      `${unfinished.length} partie${unfinished.length > 1 ? 's' : ''} non terminée${unfinished.length > 1 ? 's' : ''} archivée${unfinished.length > 1 ? 's' : ''}`,
+      'success',
+      4200
+    );
+    await Screens.render_settings();
   },
 
   openSettings() {
@@ -4966,6 +5047,15 @@ function buildScreenHTML() {
       </div>
 
       <div class="card">
+        <div class="card-title">Archivage</div>
+        <div class="setting-sub" style="margin-bottom:10px">
+          Archive toutes les parties encore en cours en une seule opération. Aucun message de confirmation et aucune question sur le gagnant ne seront affichés. Les parties déjà complétées d’une série de 500 restent conservées dans les statistiques.
+        </div>
+        <div class="setting-sub" id="archive-unfinished-count" style="margin-bottom:12px">Chargement…</div>
+        <button class="btn btn-secondary" id="archive-unfinished-btn" onclick="UI.archiveAllUnfinishedGames()">▣ Archiver toutes les parties non terminées</button>
+      </div>
+
+      <div class="card">
         <div class="card-title">Valeurs par défaut</div>
         <div class="setting-sub">À l’installation ou après une réinitialisation complète, les quatre protections sont initialisées avec le mot de passe maître par défaut. Le bonus de partie nulle et l’ajustement manuel par défaut reviennent à 50 points. Chaque mot de passe peut ensuite être laissé vide pour désactiver sa protection.</div>
       </div>
@@ -5073,7 +5163,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.32', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.34', {
         updateViaCache: 'none'
       });
       await registration.update();

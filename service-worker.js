@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.32 : historique complet des contrats de la série
+ * v2.34 : ajustements visibles et Gros Mulot à 320
  */
 
-const CACHE_NAME = 'scorekeeper-v2.32';
+const CACHE_NAME = 'scorekeeper-v2.34';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.32',
-  './app.js?v=2.32',
+  './style.css?v=2.34',
+  './app.js?v=2.34',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
