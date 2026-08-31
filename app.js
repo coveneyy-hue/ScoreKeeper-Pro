@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.36';
+const APP_VERSION = '2.37';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -3604,6 +3604,18 @@ const UI = {
     const input = document.getElementById('fh-manual-adjust-points-setting');
     const parsed = parseInt(input?.value || String(DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS), 10);
     const value = Number.isFinite(parsed) ? Math.max(0, parsed) : DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS;
+    const currentValue = await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS);
+
+    // Le mot de passe maître protège toute modification de cette valeur.
+    // Par défaut il s'agit de yco302302, sauf si l'utilisateur l'a changé.
+    if (value !== Number(currentValue)) {
+      const authorized = await Security.require('master', 'Mot de passe général requis pour modifier la valeur par défaut des ajustements :');
+      if (!authorized) {
+        if (input) input.value = currentValue;
+        return;
+      }
+    }
+
     await DB.setSetting('fiveHundredManualAdjustPoints', value);
     if (input) input.value = value;
     Utils.toast(`Ajustement manuel par défaut : ${value} points`, 'success', 3000);
@@ -5069,7 +5081,7 @@ function buildScreenHTML() {
         <div class="form-group">
           <label class="form-label">Valeur par défaut</label>
           <input class="form-input" id="fh-manual-adjust-points-setting" type="number" min="0" step="50" value="50">
-          <div class="setting-sub">Valeur préremplie à l’ouverture de l’ajustement manuel. Par défaut : 50 points. Un appui long sur + ou − dans la fenêtre d’ajustement modifie cette valeur par pas de 50. Une valeur de 0 désactive aussi la demande de mot de passe pour les ajustements manuels.</div>
+          <div class="setting-sub">Valeur préremplie à l’ouverture de l’ajustement manuel. Par défaut : 50 points. Un appui long sur + ou − dans la fenêtre d’ajustement modifie cette valeur par pas de 50. Une valeur de 0 désactive aussi la demande de mot de passe pour les ajustements manuels. Toute modification de cette valeur doit toutefois être autorisée avec le mot de passe général.</div>
         </div>
         <button class="btn btn-success btn-sm" onclick="UI.saveFhManualAdjustPointsSetting()">✓ Enregistrer</button>
       </div>

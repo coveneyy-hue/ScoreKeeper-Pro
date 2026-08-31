@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.36 : valeur d’ajustement à 0 sans mot de passe
+ * v2.37 : protection de la valeur d’ajustement par mot de passe général
  */
 
-const CACHE_NAME = 'scorekeeper-v2.36';
+const CACHE_NAME = 'scorekeeper-v2.37';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.36',
-  './app.js?v=2.36',
+  './style.css?v=2.37',
+  './app.js?v=2.37',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
