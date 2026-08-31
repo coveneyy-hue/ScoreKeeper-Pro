@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.37';
+const APP_VERSION = '2.38';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1156,6 +1156,7 @@ const Games = {
         player: game.mode === 'individual' ? entity.name : undefined,
         team: game.mode === 'individual' ? undefined : entity.name,
         entityIdx,
+        requestedDelta: delta,
         oldValue: old,
         delta: appliedDelta,
         newValue: entity.score,
@@ -3090,10 +3091,13 @@ const UI = {
             <div class="fh-contract-history-player">${Utils.esc(entityName)}</div>
             <div class="fh-contract-list-name"><span class="fh-contract-list-manual">Ajustement manuel</span></div>
           </div>
-          <div class="fh-contract-history-result">
-            <strong>${Utils.esc(Utils.signed(delta))} pts</strong>
-            <span>${oldValue} → ${newValue}</span>
-            ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+          <div class="fh-contract-history-actions">
+            <div class="fh-contract-history-result">
+              <strong>${Utils.esc(Utils.signed(delta))} pts</strong>
+              <span>${oldValue} → ${newValue}</span>
+              ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+            </div>
+            ${game.mode === 'teams' ? `<button class="fh-contract-edit-btn" type="button" onclick="UI.openFhManualHistoryEditModal(${historyIndex})" title="Modifier cet ajustement" aria-label="Modifier cet ajustement">✎</button>` : ''}
           </div>
         </div>`;
       }
@@ -3111,11 +3115,14 @@ const UI = {
             <div class="fh-contract-history-player">Partie nulle</div>
             <div class="fh-contract-list-name"><span class="fh-contract-list-manual">Pointage automatique</span></div>
           </div>
-          <div class="fh-contract-history-result">
-            <strong>${Utils.esc(detail)}</strong>
-            ${scoreDetail ? `<span>${Utils.esc(scoreDetail)}</span>` : ''}
-            ${entry.nextBidder ? `<span>Prochaine mise : ${Utils.esc(entry.nextBidder)}</span>` : ''}
-            ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+          <div class="fh-contract-history-actions">
+            <div class="fh-contract-history-result">
+              <strong>${Utils.esc(detail)}</strong>
+              ${scoreDetail ? `<span>${Utils.esc(scoreDetail)}</span>` : ''}
+              ${entry.nextBidder ? `<span>Prochaine mise : ${Utils.esc(entry.nextBidder)}</span>` : ''}
+              ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+            </div>
+            <button class="fh-contract-edit-btn" type="button" onclick="UI.openFhNullDealHistoryEditModal(${historyIndex})" title="Modifier cette partie nulle" aria-label="Modifier cette partie nulle">✎</button>
           </div>
         </div>`;
       }
@@ -3344,11 +3351,12 @@ const UI = {
         }
         const team = game.teams?.[entityIdx];
         if (!team) return;
-        const requestedDelta = Number(entry.delta) || 0;
+        const requestedDelta = Number(entry.requestedDelta ?? entry.delta) || 0;
         const oldValue = Number(team.score) || 0;
         team.score = Math.max(0, oldValue + requestedDelta);
         entry.entityIdx = entityIdx;
         entry.team = team.name;
+        entry.requestedDelta = requestedDelta;
         entry.oldValue = oldValue;
         entry.delta = team.score - oldValue;
         entry.newValue = team.score;
@@ -3356,14 +3364,131 @@ const UI = {
       }
 
       if (entry.kind === 'nullDeal') {
-        const appliedPoints = Math.max(0, Number(entry.appliedPoints) || 0);
+        const configuredPoints = Math.max(0, Number(entry.configuredPoints ?? entry.appliedPoints) || 0);
         entry.before = game.teams.map(team => Number(team.score) || 0);
+        const blockedTeams = game.teams.filter(team => (Number(team.score) || 0) + configuredPoints >= 1000);
+        const appliedPoints = blockedTeams.length ? 0 : configuredPoints;
         if (appliedPoints > 0) {
           game.teams.forEach(team => { team.score = Math.max(0, (Number(team.score) || 0) + appliedPoints); });
         }
+        entry.configuredPoints = configuredPoints;
+        entry.appliedPoints = appliedPoints;
+        entry.blockedBy = blockedTeams.map(team => team.name);
         entry.after = game.teams.map(team => Number(team.score) || 0);
       }
     });
+  },
+
+  openFhManualHistoryEditModal(historyIndex) {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    const entry = game.history?.[historyIndex];
+    if (!entry || entry.kind !== 'manual') return;
+
+    let entityIdx = Number.isInteger(entry.entityIdx) ? entry.entityIdx : game.teams.findIndex(team => team.name === entry.team);
+    if (entityIdx < 0 || !game.teams?.[entityIdx]) entityIdx = 0;
+    const requestedDelta = Number(entry.requestedDelta ?? entry.delta) || 0;
+    const direction = requestedDelta < 0 ? -1 : 1;
+    const magnitude = Math.abs(requestedDelta);
+    const entityOptions = game.teams.map((team, idx) => `<option value="${idx}" ${idx === entityIdx ? 'selected' : ''}>${Utils.esc(team.name)}</option>`).join('');
+
+    const html = `
+      <div class="setting-sub" style="margin-bottom:12px">Corrigez l’équipe, le sens et la valeur de cet ajustement. Tous les événements suivants de la partie seront recalculés.</div>
+      <div class="form-group">
+        <label class="form-label">Équipe</label>
+        <select class="form-select" id="fh-edit-manual-entity">${entityOptions}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Type d’ajustement</label>
+        <select class="form-select" id="fh-edit-manual-direction">
+          <option value="1" ${direction > 0 ? 'selected' : ''}>+ Ajouter</option>
+          <option value="-1" ${direction < 0 ? 'selected' : ''}>− Retirer</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Points</label>
+        <input class="form-input" id="fh-edit-manual-points" type="number" min="0" step="50" value="${magnitude}">
+      </div>
+      <button class="btn btn-primary" onclick="UI.saveFhManualHistoryEdit(${historyIndex})">✓ Enregistrer la correction</button>
+    `;
+    this.openAppModal('Modifier l’ajustement', html);
+  },
+
+  async saveFhManualHistoryEdit(historyIndex) {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    const entry = game.history?.[historyIndex];
+    if (!entry || entry.kind !== 'manual') return;
+
+    const entityIdx = parseInt(document.getElementById('fh-edit-manual-entity')?.value ?? '-1', 10);
+    const direction = parseInt(document.getElementById('fh-edit-manual-direction')?.value ?? '1', 10) < 0 ? -1 : 1;
+    const points = Math.max(0, parseInt(document.getElementById('fh-edit-manual-points')?.value ?? '0', 10) || 0);
+    if (!game.teams?.[entityIdx]) {
+      Utils.toast('Correction invalide', 'error');
+      return;
+    }
+
+    if (await this.fhManualAdjustPasswordRequired()) {
+      const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour modifier cet ajustement :');
+      if (!authorized) return;
+    }
+
+    entry.entityIdx = entityIdx;
+    entry.team = game.teams[entityIdx].name;
+    entry.player = undefined;
+    entry.requestedDelta = points * direction;
+    entry.editedAt = new Date().toISOString();
+    entry.edited = true;
+
+    this.recalculateCurrentTeamSetScores();
+    game.updatedAt = new Date().toISOString();
+    await DB.save('games', game);
+
+    this.closeAppModal();
+    Screens.render_five_hundred();
+    Utils.toast(`Ajustement corrigé : ${game.teams[entityIdx].name} ${Utils.signed(entry.delta)} pts`, 'success', 4200);
+  },
+
+  openFhNullDealHistoryEditModal(historyIndex) {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    const entry = game.history?.[historyIndex];
+    if (!entry || entry.kind !== 'nullDeal') return;
+
+    const configuredPoints = Math.max(0, Number(entry.configuredPoints ?? entry.appliedPoints) || 0);
+    const html = `
+      <div class="setting-sub" style="margin-bottom:12px">Corrigez la valeur de cette partie nulle. Le score est recalculé dans l’ordre chronologique et la règle empêchant une victoire immédiate par partie nulle demeure appliquée.</div>
+      <div class="form-group">
+        <label class="form-label">Points aux deux équipes</label>
+        <input class="form-input" id="fh-edit-null-points" type="number" min="0" step="50" value="${configuredPoints}">
+      </div>
+      <button class="btn btn-primary" onclick="UI.saveFhNullDealHistoryEdit(${historyIndex})">✓ Enregistrer la correction</button>
+    `;
+    this.openAppModal('Modifier la partie nulle', html);
+  },
+
+  async saveFhNullDealHistoryEdit(historyIndex) {
+    const game = State.currentGame;
+    if (!game || game.type !== 'fiveHundred' || game.mode !== 'teams') return;
+    const entry = game.history?.[historyIndex];
+    if (!entry || entry.kind !== 'nullDeal') return;
+
+    const points = Math.max(0, parseInt(document.getElementById('fh-edit-null-points')?.value ?? '0', 10) || 0);
+    const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour modifier cette partie nulle :');
+    if (!authorized) return;
+
+    entry.configuredPoints = points;
+    entry.editedAt = new Date().toISOString();
+    entry.edited = true;
+
+    this.recalculateCurrentTeamSetScores();
+    game.updatedAt = new Date().toISOString();
+    await DB.save('games', game);
+
+    this.closeAppModal();
+    Screens.render_five_hundred();
+    const applied = Math.max(0, Number(entry.appliedPoints) || 0);
+    Utils.toast(applied > 0 ? `Partie nulle corrigée : +${applied} pts aux deux équipes` : 'Partie nulle corrigée : 0 point ajouté', 'success', 4200);
   },
 
   openFhContractEditModal(historyIndex) {
@@ -4982,7 +5107,7 @@ function buildScreenHTML() {
 
       <section class="card fh-contract-list-card" aria-label="Liste des contrats">
         <div class="card-title">Contrats, ajustements et parties nulles</div>
-        <div class="setting-sub fh-contract-list-note">Tout ce qui influence le pointage de cette partie, du plus récent au plus vieux. Utilisez ✎ pour corriger un contrat.</div>
+        <div class="setting-sub fh-contract-list-note">Tout ce qui influence le pointage de cette partie, du plus récent au plus vieux. Utilisez ✎ pour corriger un contrat, un ajustement ou une partie nulle.</div>
         <div class="fh-contract-list" id="fh-contract-list"></div>
       </section>
 

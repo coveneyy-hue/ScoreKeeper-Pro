@@ -2481,3 +2481,5 @@ body {
 @media (max-width: 430px) {
   .fh-series-history-game-head { align-items: flex-start; flex-direction: column; gap: 3px; }
 }
+
+/* v2.38 - le même bouton de correction est utilisé pour les contrats, ajustements et parties nulles. */
