@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.34 : ajustements visibles et Gros Mulot à 320
+ * v2.35 : parties nulles dans la liste de pointage
  */
 
-const CACHE_NAME = 'scorekeeper-v2.34';
+const CACHE_NAME = 'scorekeeper-v2.35';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.34',
-  './app.js?v=2.34',
+  './style.css?v=2.35',
+  './app.js?v=2.35',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

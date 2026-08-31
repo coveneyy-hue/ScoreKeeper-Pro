@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.34';
+const APP_VERSION = '2.35';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -3026,7 +3026,8 @@ const UI = {
         ? entry.kind === 'contract'
         : entry.kind === 'individualRound';
       const isManual = entry.kind === 'manual';
-      if (!isContract && !isManual) return false;
+      const isNullDeal = entry.kind === 'nullDeal';
+      if (!isContract && !isManual && !isNullDeal) return false;
 
       if (game.mode !== 'teams') return true;
 
@@ -3038,9 +3039,9 @@ const UI = {
         return explicitSeriesGame === Number(currentSeriesGame);
       }
 
-      // Compatibilité avec les ajustements plus anciens qui n'avaient pas encore
+      // Compatibilité avec les ajustements et parties nulles plus anciens qui n'avaient pas encore
       // de numéro de partie : les rattacher à la partie courante par leur heure.
-      if (isManual) {
+      if (isManual || isNullDeal) {
         if (Number.isFinite(currentSetStartedMs) && entry.timestamp) {
           const entryMs = new Date(entry.timestamp).getTime();
           return Number.isFinite(entryMs) && entryMs >= currentSetStartedMs;
@@ -3054,7 +3055,7 @@ const UI = {
     }).reverse();
 
     if (!entries.length) {
-      return `<div class="fh-contract-history-empty">Aucun contrat ni ajustement manuel dans cette partie.</div>`;
+      return `<div class="fh-contract-history-empty">Aucun événement de pointage dans cette partie.</div>`;
     }
 
     const suitClass = (suit) => suit === '♥' ? 'suit-heart' : suit === '♦' ? 'suit-diamond' : suit === 'NT' ? 'suit-nt' : 'suit-black';
@@ -3092,6 +3093,28 @@ const UI = {
           <div class="fh-contract-history-result">
             <strong>${Utils.esc(Utils.signed(delta))} pts</strong>
             <span>${oldValue} → ${newValue}</span>
+            ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
+          </div>
+        </div>`;
+      }
+
+      if (entry.kind === 'nullDeal') {
+        const applied = Math.max(0, Number(entry.appliedPoints) || 0);
+        const before = Array.isArray(entry.before) ? entry.before.map(v => Number(v) || 0) : [];
+        const after = Array.isArray(entry.after) ? entry.after.map(v => Number(v) || 0) : [];
+        const detail = applied > 0 ? `+${applied} pts aux deux équipes` : '0 point ajouté';
+        const scoreDetail = before.length >= 2 && after.length >= 2
+          ? `${before[0]} / ${before[1]} → ${after[0]} / ${after[1]}`
+          : '';
+        return `<div class="fh-contract-list-row fh-contract-history-row is-null">
+          <div class="fh-contract-history-main">
+            <div class="fh-contract-history-player">Partie nulle</div>
+            <div class="fh-contract-list-name"><span class="fh-contract-list-manual">Pointage automatique</span></div>
+          </div>
+          <div class="fh-contract-history-result">
+            <strong>${Utils.esc(detail)}</strong>
+            ${scoreDetail ? `<span>${Utils.esc(scoreDetail)}</span>` : ''}
+            ${entry.nextBidder ? `<span>Prochaine mise : ${Utils.esc(entry.nextBidder)}</span>` : ''}
             ${timeLabel ? `<small>${Utils.esc(timeLabel)}</small>` : ''}
           </div>
         </div>`;
@@ -4931,8 +4954,8 @@ function buildScreenHTML() {
       <div class="five-hundred-teams" id="fh-teams"></div>
 
       <section class="card fh-contract-list-card" aria-label="Liste des contrats">
-        <div class="card-title">Contrats et ajustements de cette partie</div>
-        <div class="setting-sub fh-contract-list-note">Du plus récent au plus vieux. Utilisez ✎ pour corriger un contrat.</div>
+        <div class="card-title">Contrats, ajustements et parties nulles</div>
+        <div class="setting-sub fh-contract-list-note">Tout ce qui influence le pointage de cette partie, du plus récent au plus vieux. Utilisez ✎ pour corriger un contrat.</div>
         <div class="fh-contract-list" id="fh-contract-list"></div>
       </section>
 
@@ -5163,7 +5186,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.34', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.35', {
         updateViaCache: 'none'
       });
       await registration.update();
