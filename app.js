@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.35';
+const APP_VERSION = '2.36';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -3506,11 +3506,24 @@ const UI = {
     this.openAppModal('Informations du 500', html);
   },
 
+  /**
+   * La valeur 0 pour l'ajustement manuel désactive aussi sa demande de mot de passe.
+   * Le mot de passe enregistré reste intact et redevient actif si la valeur par défaut repasse au-dessus de 0.
+   */
+  async fhManualAdjustPasswordRequired() {
+    const configuredPoints = Math.max(0, parseInt(
+      await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS),
+      10
+    ) || 0);
+    if (configuredPoints === 0) return false;
+    return (await Security.get('manualAdjust')) !== '';
+  },
+
   async openFhManualAdjustModal() {
     const game = State.currentGame;
     if (!game || game.type !== 'fiveHundred') return;
     const defaultPoints = Math.max(0, parseInt(await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS), 10) || 0);
-    const passwordRequired = (await Security.get('manualAdjust')) !== '';
+    const passwordRequired = await this.fhManualAdjustPasswordRequired();
     const html = `
       <div class="setting-sub" style="margin-bottom:12px">${passwordRequired ? 'Le mot de passe d’ajustement manuel sera demandé avant la modification.' : 'La protection par mot de passe est désactivée pour les ajustements manuels.'}</div>
       <div class="form-group">
@@ -4405,8 +4418,10 @@ const UI = {
       Utils.toast('Entrez un nombre de points', 'error');
       return;
     }
-    const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour l’ajustement manuel / pénalité :');
-    if (!authorized) return;
+    if (await this.fhManualAdjustPasswordRequired()) {
+      const authorized = await Security.require('manualAdjust', 'Mot de passe requis pour l’ajustement manuel / pénalité :');
+      if (!authorized) return;
+    }
     const result = Games.fiveHundred.adjustScore(game, idx, raw * sign);
     await DB.save('games', game);
     Utils.toast(`Ajustement ${Utils.signed(result.delta)} pts`, result.delta < 0 ? 'error' : 'success');
@@ -5054,7 +5069,7 @@ function buildScreenHTML() {
         <div class="form-group">
           <label class="form-label">Valeur par défaut</label>
           <input class="form-input" id="fh-manual-adjust-points-setting" type="number" min="0" step="50" value="50">
-          <div class="setting-sub">Valeur préremplie à l’ouverture de l’ajustement manuel. Par défaut : 50 points. Un appui long sur + ou − dans la fenêtre d’ajustement modifie cette valeur par pas de 50.</div>
+          <div class="setting-sub">Valeur préremplie à l’ouverture de l’ajustement manuel. Par défaut : 50 points. Un appui long sur + ou − dans la fenêtre d’ajustement modifie cette valeur par pas de 50. Une valeur de 0 désactive aussi la demande de mot de passe pour les ajustements manuels.</div>
         </div>
         <button class="btn btn-success btn-sm" onclick="UI.saveFhManualAdjustPointsSetting()">✓ Enregistrer</button>
       </div>
@@ -5186,7 +5201,7 @@ async function init() {
         window.location.reload();
       });
 
-      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.35', {
+      const registration = await navigator.serviceWorker.register('./service-worker.js?v=2.36', {
         updateViaCache: 'none'
       });
       await registration.update();

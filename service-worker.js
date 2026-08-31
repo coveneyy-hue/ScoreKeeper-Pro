@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.35 : parties nulles dans la liste de pointage
+ * v2.36 : valeur d’ajustement à 0 sans mot de passe
  */
 
-const CACHE_NAME = 'scorekeeper-v2.35';
+const CACHE_NAME = 'scorekeeper-v2.36';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.35',
-  './app.js?v=2.35',
+  './style.css?v=2.36',
+  './app.js?v=2.36',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
