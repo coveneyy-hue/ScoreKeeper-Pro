@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.39 : édition des contrats, ajustements et parties nulles depuis la liste
+ * v2.40 : statistiques par nombre de parties, 20 dernières par défaut
  */
 
-const CACHE_NAME = 'scorekeeper-v2.39';
+const CACHE_NAME = 'scorekeeper-v2.40';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.39',
-  './app.js?v=2.39',
+  './style.css?v=2.40',
+  './app.js?v=2.40',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.39';
+const APP_VERSION = '2.40';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1861,7 +1861,8 @@ const Screens = {
 
     const gameFilter = document.getElementById('stats-game-filter')?.value || 'all';
     const modeFilter = document.getElementById('stats-mode-filter')?.value || 'all';
-    const periodFilter = document.getElementById('stats-period-filter')?.value || '15';
+    const periodFilter = document.getElementById('stats-period-filter')?.value || 'all';
+    const gameCountFilter = document.getElementById('stats-game-count-filter')?.value || '20';
     const playerFilter = document.getElementById('stats-player-filter')?.value || 'all';
     const teamFilter = document.getElementById('stats-team-filter')?.value || 'all';
     const minGamesFilter = document.getElementById('stats-min-games-filter')?.value || '3';
@@ -1891,7 +1892,7 @@ const Screens = {
     const days = periodFilter === '15' ? 15 : periodFilter === '30' ? 30 : periodFilter === '90' ? 90 : periodFilter === '365' ? 365 : null;
     const inPeriod = (r) => !days || (now - new Date(r.date).getTime()) <= days * 86400000;
 
-    const records = allRecords.filter(r => {
+    const matchingRecords = allRecords.filter(r => {
       if (gameFilter !== 'all' && r.gameType !== gameFilter) return false;
       if (modeFilter !== 'all' && r.mode !== modeFilter) return false;
       if (!inPeriod(r)) return false;
@@ -1900,12 +1901,24 @@ const Screens = {
       return true;
     });
 
-    // Base des contrats selon jeu/mode/période/équipe. Le filtre joueur est appliqué
+    // Le filtre « Parties » s'applique après les autres filtres : on conserve les N
+    // parties terminées les plus récentes parmi celles qui correspondent déjà au jeu,
+    // au mode, au joueur, à l'équipe et à la période sélectionnés.
+    const gameLimit = gameCountFilter === 'all' ? null : Math.max(1, parseInt(gameCountFilter, 10) || 20);
+    const records = matchingRecords
+      .slice()
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, gameLimit || undefined);
+    const statsGameKey = (r) => `${r.sourceGameId || ''}|${r.seriesGameNumber || 1}`;
+    const selectedGameKeys = new Set(records.map(statsGameKey));
+
+    // Base des contrats selon les mêmes parties retenues. Le filtre joueur est appliqué
     // ensuite afin de conserver un dénominateur exact pour la part de contrats pris.
     const baseContractRecords = allContractRecords.filter(r => {
       if (gameFilter !== 'all' && gameFilter !== 'fiveHundred') return false;
       if (modeFilter !== 'all' && r.mode !== modeFilter) return false;
       if (!inPeriod(r)) return false;
+      if (!selectedGameKeys.has(statsGameKey(r))) return false;
       if (teamFilter !== 'all' && r.team?.key !== teamFilter) return false;
       return true;
     });
@@ -2598,8 +2611,11 @@ const Screens = {
         .filter(r => r.gameType === 'fiveHundred' && r.mode === 'teams')
         .slice()
         .sort((a,b) => new Date(b.date) - new Date(a.date));
+      // L'historique détaillé doit respecter exactement le filtre « Parties », mais
+      // une fois une partie retenue, on affiche tous ses contrats, même si un filtre
+      // joueur ou équipe a servi à sélectionner cette partie.
       const historyContracts = allContractRecords
-        .filter(r => r.mode === 'teams' && inPeriod(r));
+        .filter(r => r.mode === 'teams' && selectedGameKeys.has(statsGameKey(r)));
       const historyGameKey = (r) => `${r.sourceGameId || ''}|${r.seriesGameNumber || 1}`;
       const historyContractsByGame = new Map();
       historyContracts.forEach(r => {
@@ -4752,7 +4768,7 @@ const UI = {
       takeRate: ['Fréquence de prise', 'Part des contrats disponibles pris par le joueur pendant les parties où il était présent. Une valeur élevée indique qu’il prend souvent la responsabilité de la mise.'],
       valueEfficiency: ['Efficacité en points', 'Compare la valeur des points obtenus par les contrats réussis à la valeur totale engagée. Elle pénalise les échecs coûteux et complète le simple taux de réussite.'],
       finisher: ['Contrat finisseur', 'Dernier contrat réussi par un joueur qui fait atteindre le seuil de victoire à son équipe et termine la partie.'],
-      filters: ['Filtres statistiques', 'Tous les classements et statistiques sont recalculés selon le jeu, le mode, le joueur, l’équipe, la période et le minimum de parties sélectionnés.']
+      filters: ['Filtres statistiques', 'Tous les classements et statistiques sont recalculés selon le jeu, le mode, le joueur, l’équipe, la période, le nombre de parties retenues et le minimum de parties. Le filtre Parties conserve les N parties terminées les plus récentes après application des autres filtres.']
     };
     const item = infos[key];
     if (!item) return;
@@ -5251,7 +5267,8 @@ function buildScreenHTML() {
           <div class="form-group"><label class="form-label">Mode</label><select class="form-select" id="stats-mode-filter" onchange="UI.refreshStats()"><option value="all">Tous</option><option value="individual">Solo seulement (exclut les équipes)</option><option value="teams">Équipe seulement</option></select></div>
           <div class="form-group"><label class="form-label">Joueur</label><select class="form-select" id="stats-player-filter" onchange="UI.refreshStats()"><option value="all">Tous les joueurs</option></select></div>
           <div class="form-group"><label class="form-label">Équipe</label><select class="form-select" id="stats-team-filter" onchange="UI.refreshStats()"><option value="all">Toutes les équipes</option></select></div>
-          <div class="form-group"><label class="form-label">Période</label><select class="form-select" id="stats-period-filter" onchange="UI.refreshStats()"><option value="15" selected>15 derniers jours</option><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option><option value="all">Depuis toujours</option></select></div>
+          <div class="form-group"><label class="form-label">Période</label><select class="form-select" id="stats-period-filter" onchange="UI.refreshStats()"><option value="15">15 derniers jours</option><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option><option value="all" selected>Depuis toujours</option></select></div>
+          <div class="form-group"><label class="form-label">Parties</label><select class="form-select" id="stats-game-count-filter" onchange="UI.refreshStats()"><option value="10">10 dernières</option><option value="20" selected>20 dernières</option><option value="50">50 dernières</option><option value="100">100 dernières</option><option value="all">Toutes</option></select></div>
           <div class="form-group"><label class="form-label">Minimum de parties</label><select class="form-select" id="stats-min-games-filter" onchange="UI.refreshStats()"><option value="3" selected>3 parties ou +</option><option value="all">Afficher tout</option></select></div>
         </div>
       </div>

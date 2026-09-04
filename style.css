@@ -1515,8 +1515,8 @@ body {
   /* Générique : cartes joueurs en grille au lieu d'une pile */
   .generic-score-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 
-  /* Statistiques : tous les filtres sur une ligne */
-  .stats-filter-grid { grid-template-columns: repeat(6, 1fr); }
+  /* Statistiques : grille adaptative pour les filtres */
+  .stats-filter-grid { grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); }
   .stats-summary { display: flex; flex-wrap: wrap; gap: 22px; }
 
   /* Historique : plus de hauteur visible, layout deux colonnes possible */
