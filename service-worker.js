@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.40 : statistiques par nombre de parties, 20 dernières par défaut
+ * v2.41 : périodes dernière journée et dernière semaine
  */
 
-const CACHE_NAME = 'scorekeeper-v2.40';
+const CACHE_NAME = 'scorekeeper-v2.41';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.40',
-  './app.js?v=2.40',
+  './style.css?v=2.41',
+  './app.js?v=2.41',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

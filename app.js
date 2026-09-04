@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.40';
+const APP_VERSION = '2.41';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1889,7 +1889,7 @@ const Screens = {
     fillSelect('stats-team-filter', [...allTeams.entries()].sort((a,b)=>a[1].localeCompare(b[1],'fr-CA')), 'Toutes les équipes', teamFilter);
 
     const now = Date.now();
-    const days = periodFilter === '15' ? 15 : periodFilter === '30' ? 30 : periodFilter === '90' ? 90 : periodFilter === '365' ? 365 : null;
+    const days = periodFilter === 'all' ? null : Math.max(1, parseInt(periodFilter, 10) || 1);
     const inPeriod = (r) => !days || (now - new Date(r.date).getTime()) <= days * 86400000;
 
     const matchingRecords = allRecords.filter(r => {
@@ -5267,7 +5267,7 @@ function buildScreenHTML() {
           <div class="form-group"><label class="form-label">Mode</label><select class="form-select" id="stats-mode-filter" onchange="UI.refreshStats()"><option value="all">Tous</option><option value="individual">Solo seulement (exclut les équipes)</option><option value="teams">Équipe seulement</option></select></div>
           <div class="form-group"><label class="form-label">Joueur</label><select class="form-select" id="stats-player-filter" onchange="UI.refreshStats()"><option value="all">Tous les joueurs</option></select></div>
           <div class="form-group"><label class="form-label">Équipe</label><select class="form-select" id="stats-team-filter" onchange="UI.refreshStats()"><option value="all">Toutes les équipes</option></select></div>
-          <div class="form-group"><label class="form-label">Période</label><select class="form-select" id="stats-period-filter" onchange="UI.refreshStats()"><option value="15">15 derniers jours</option><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option><option value="all" selected>Depuis toujours</option></select></div>
+          <div class="form-group"><label class="form-label">Période</label><select class="form-select" id="stats-period-filter" onchange="UI.refreshStats()"><option value="1">Dernière journée</option><option value="7">Dernière semaine</option><option value="15">15 derniers jours</option><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option><option value="all" selected>Depuis toujours</option></select></div>
           <div class="form-group"><label class="form-label">Parties</label><select class="form-select" id="stats-game-count-filter" onchange="UI.refreshStats()"><option value="10">10 dernières</option><option value="20" selected>20 dernières</option><option value="50">50 dernières</option><option value="100">100 dernières</option><option value="all">Toutes</option></select></div>
           <div class="form-group"><label class="form-label">Minimum de parties</label><select class="form-select" id="stats-min-games-filter" onchange="UI.refreshStats()"><option value="3" selected>3 parties ou +</option><option value="all">Afficher tout</option></select></div>
         </div>
