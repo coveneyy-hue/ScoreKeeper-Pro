@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.46 : position des Mulots harmonisée avec la grille des contrats
+ * v2.48 : contrats Mulot classés selon leur valeur gagnante
  */
 
-const CACHE_NAME = 'scorekeeper-v2.46';
+const CACHE_NAME = 'scorekeeper-v2.48';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.46',
-  './app.js?v=2.46',
+  './style.css?v=2.48',
+  './app.js?v=2.48',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

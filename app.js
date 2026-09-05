@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.46';
+const APP_VERSION = '2.48';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -2945,9 +2945,12 @@ const UI = {
     const contractCell = (key, labelHtml, pts, extraClass = '', failedPts = null) => {
       const failureHtml = failedPts === null
         ? ''
-        : (interactive ? ` / échec ${failedPts}` : `<small>échec : ${failedPts}</small>`);
+        : (interactive ? `<span class="contract-failure-value">échec ${failedPts}</span>` : `<small>échec : ${failedPts}</small>`);
       if (interactive) {
-        return `<button class="contract-btn ${extraClass} ${UI._selectedContract === key ? 'selected' : ''}" onclick="UI.selectContract('${key}')" data-key="${key}">${labelHtml}<small>${pts}${failureHtml}</small></button>`;
+        const pointsHtml = failedPts === null
+          ? `<small>${pts}</small>`
+          : `<small class="contract-points-with-failure"><span>${pts}</span>${failureHtml}</small>`;
+        return `<button class="contract-btn ${extraClass} ${UI._selectedContract === key ? 'selected' : ''}" onclick="UI.selectContract('${key}')" data-key="${key}">${labelHtml}${pointsHtml}</button>`;
       }
       return `<div class="fh-contract-value-cell ${extraClass}">${labelHtml}<strong>${pts}</strong>${failureHtml}</div>`;
     };
@@ -2987,8 +2990,11 @@ const UI = {
         return contractCell(key, labelHtml, pts, bid === '10' && game?.mode === 'teams' ? 'fh-game-contract' : '', failedPts);
       }).join('');
 
-      if (bid === '9' && grosMulotHtml) row += grosMulotHtml;
-      if (bid === '10' && mulotSupremeHtml) row += mulotSupremeHtml;
+      // Les contrats spéciaux sont placés selon leur valeur gagnante :
+      // Gros Mulot 320 après les 8 (240 à 320), Mulot Suprême 500
+      // après les 9 (340 à 420) et avant les Parties (1040+).
+      if (bid === '8' && grosMulotHtml) row += grosMulotHtml;
+      if (bid === '9' && mulotSupremeHtml) row += mulotSupremeHtml;
       return row;
     }).join('');
 
@@ -3016,15 +3022,16 @@ const UI = {
 
   fhTeamContractKeysInDisplayOrder() {
     const suits = ['♠','♣','♦','♥','NT'];
-    // Même ordre que la grille visible : petit Mulot avant 8,
-    // Gros Mulot sous la ligne des 9 et Mulot Suprême sous la ligne Partie.
+    // Même ordre que la grille visible, classé par valeur gagnante :
+    // Mulot 225, 8 (240 à 320), Gros Mulot 320, 9 (340 à 420),
+    // Mulot Suprême 500, puis Partie (1040 à 1120).
     return [
       FIVE_HUNDRED_MULOT.key,
       ...suits.map(s => `8${s}`),
-      ...suits.map(s => `9${s}`),
       FIVE_HUNDRED_GROS_MULOT.key,
-      ...suits.map(s => `10${s}`),
+      ...suits.map(s => `9${s}`),
       FIVE_HUNDRED_MULOT_SUPREME.key,
+      ...suits.map(s => `10${s}`),
     ];
   },
 

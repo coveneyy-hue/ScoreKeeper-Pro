@@ -2491,3 +2491,61 @@ body {
 }
 
 /* v2.38 - le même bouton de correction est utilisé pour les contrats, ajustements et parties nulles. */
+
+
+/* ── ScoreKeeper Pro 2.47 : grille de contrats sans débordement mobile ── */
+.app-modal-card,
+.app-modal-body,
+.fh-contract-table {
+  min-width: 0;
+  max-width: 100%;
+}
+.app-modal-card { overflow-x: hidden; }
+.fh-contract-table { width: 100%; overflow: hidden; }
+.fh-contract-head,
+.fh-contract-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+  max-width: 100%;
+}
+.fh-contract-grid > *,
+.fh-contract-head > * {
+  min-width: 0;
+}
+.fh-contract-grid .contract-btn {
+  min-width: 0;
+  overflow: hidden;
+}
+.contract-points-with-failure {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  white-space: normal;
+  line-height: 1.05;
+}
+.contract-failure-value {
+  display: block;
+  white-space: nowrap;
+  font-size: .88em;
+}
+@media (max-width: 430px) {
+  .app-modal-overlay { padding-left: 8px; padding-right: 8px; }
+  .app-modal-body { padding-left: 10px; padding-right: 10px; }
+  .fh-contract-head,
+  .fh-contract-grid { gap: 5px; }
+  .fh-contract-grid .contract-btn {
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+  .fh-contract-grid .contract-inline-label { gap: 3px; }
+  .fh-contract-grid .contract-inline-label .bid-text,
+  .fh-contract-grid .contract-inline-label .suit-inline {
+    font-size: 15px;
+  }
+  .fh-contract-grid .contract-btn small { font-size: 11px; }
+  .fh-contract-grid .fh-game-contract small { font-size: 10px; }
+  .contract-failure-value { font-size: 9px; }
+}
