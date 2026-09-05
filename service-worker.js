@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.41 : périodes dernière journée et dernière semaine
+ * v2.45 : le 7 en équipes devient une annonce seulement
  */
 
-const CACHE_NAME = 'scorekeeper-v2.41';
+const CACHE_NAME = 'scorekeeper-v2.45';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.41',
-  './app.js?v=2.41',
+  './style.css?v=2.45',
+  './app.js?v=2.45',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

@@ -1333,6 +1333,14 @@ body {
   font-size: 13px;
   color: var(--text-primary);
 }
+.fh-contract-value-cell small {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.15;
+}
+.fh-game-contract small {
+  white-space: nowrap;
+}
 .app-modal-overlay {
   position: fixed;
   inset: 0;
