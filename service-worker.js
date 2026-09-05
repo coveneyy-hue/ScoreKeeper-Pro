@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.45 : le 7 en équipes devient une annonce seulement
+ * v2.46 : position des Mulots harmonisée avec la grille des contrats
  */
 
-const CACHE_NAME = 'scorekeeper-v2.45';
+const CACHE_NAME = 'scorekeeper-v2.46';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.45',
-  './app.js?v=2.45',
+  './style.css?v=2.46',
+  './app.js?v=2.46',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.45';
+const APP_VERSION = '2.46';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -3016,11 +3016,15 @@ const UI = {
 
   fhTeamContractKeysInDisplayOrder() {
     const suits = ['♠','♣','♦','♥','NT'];
+    // Même ordre que la grille visible : petit Mulot avant 8,
+    // Gros Mulot sous la ligne des 9 et Mulot Suprême sous la ligne Partie.
     return [
       FIVE_HUNDRED_MULOT.key,
       ...suits.map(s => `8${s}`),
-      ...suits.map(s => `9${s}`), FIVE_HUNDRED_GROS_MULOT.key, FIVE_HUNDRED_MULOT_SUPREME.key,
+      ...suits.map(s => `9${s}`),
+      FIVE_HUNDRED_GROS_MULOT.key,
       ...suits.map(s => `10${s}`),
+      FIVE_HUNDRED_MULOT_SUPREME.key,
     ];
   },
 
