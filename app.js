@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.48';
+const APP_VERSION = '2.49';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -483,16 +483,16 @@ const FIVE_HUNDRED_MULOT = {
   failedOpponentPoints: 225,
 };
 
-// Gros Mulot : même objectif de 0 levée, mais la main du miseur est exposée
-// après la première levée. Réussite = 320 points; échec = 320 points aux adversaires.
+// Gros Mulot : objectif de 0 levée. Le miseur échange une carte avec son collègue
+// puis joue son jeu sur la table. Réussite = 330 points; échec = 330 points aux adversaires.
 const FIVE_HUNDRED_GROS_MULOT = {
   key: 'GROS_MULOT',
-  points: 320,
-  failedOpponentPoints: 320,
+  points: 330,
+  failedOpponentPoints: 330,
 };
 
-// Mulot Suprême : contrat extrême à 0 levée. Réussite = 500 points;
-// échec = 500 points aux adversaires. Disponible uniquement en équipes.
+// Compatibilité historique seulement : le Mulot Suprême n'est plus proposé depuis la v2.49.
+// Cette définition permet de relire correctement les anciennes parties qui l'utilisaient.
 const FIVE_HUNDRED_MULOT_SUPREME = {
   key: 'MULOT_SUPREME',
   points: 500,
@@ -913,8 +913,7 @@ const Games = {
      * Contrat normal chuté : valeur complète aux adversaires.
      * Partie chutée : 50 % de la valeur aux adversaires.
      * Mulot chuté : 225 points aux adversaires.
-     * Gros Mulot chuté : 320 points aux adversaires.
-     * Mulot Suprême chuté : 500 points aux adversaires.
+     * Gros Mulot chuté : 330 points aux adversaires.
      * Une partie est gagnée dès qu'une équipe atteint 1000 points.
      */
     applyContract(game, teamIdx, contractKey, success, bidderSeatIdx = null) {
@@ -953,7 +952,7 @@ const Games = {
         points: pts,
         awardedPoints,
         success,
-        lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-225' : (this.isGrosMulotContract(contractKey) ? 'gros-mulot-320' : (this.isMulotSupremeContract(contractKey) ? 'mulot-supreme-500' : (this.isGameContract(contractKey) ? 'partie-half' : 'full')))),
+        lossRule: success ? null : (this.isMulotContract(contractKey) ? 'mulot-225' : (this.isGrosMulotContract(contractKey) ? 'gros-mulot-330' : (this.isMulotSupremeContract(contractKey) ? 'mulot-supreme-500' : (this.isGameContract(contractKey) ? 'partie-half' : 'full')))),
         oldValue: oldAwarded,
         delta: awardedPoints,
         newValue: awardedTeam.score,
@@ -1578,7 +1577,7 @@ const Screens = {
             `).join('')}
           </div>
           <div class="setting-sub" style="margin-top:12px"><strong>Équipes déterminées automatiquement.</strong><br>Avec les joueurs par défaut, l'historique fait alterner les 3 partenariats possibles et le premier miseur. Les positions 1+3 affrontent les positions 2+4.</div>
-          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Le 7 est une annonce seulement et ne constitue pas un contrat final, donc aucune ligne de 7 n'est proposée au pointage. À partir de 8, l'atout doit être précisé avant de prendre le minou. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne 50 % de sa valeur aux adversaires : Partie ♠ 1040 / échec 520, Partie ♣ 1060 / échec 530, Partie ♦ 1080 / échec 540, Partie ♥ 1100 / échec 550, Partie S 1120 / échec 560. Un Mulot vaut 225 points, un Gros Mulot 320 points, et le Mulot Suprême vaut 500 points avec 500 points aux adversaires en cas d'échec. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
+          <div class="setting-sub" style="margin-top:10px">500 en équipes : aucun score négatif. Le 7 est une annonce seulement et ne constitue pas un contrat final, donc aucune ligne de 7 n'est proposée au pointage. À partir de 8, l'atout doit être précisé avant de prendre le minou. Un contrat normal chuté donne sa valeur aux adversaires. Une Partie chutée donne 50 % de sa valeur aux adversaires : Partie ♠ 1040 / échec 520, Partie ♣ 1060 / échec 530, Partie ♦ 1080 / échec 540, Partie ♥ 1100 / échec 550, Partie S 1120 / échec 560. Un Mulot vaut 225 points et un Gros Mulot 330 points, avec 330 points aux adversaires en cas d'échec. Une partie est gagnée à 1000 points; la série se poursuit jusqu'au nombre de victoires choisi.</div>
         </div>
 
         <div class="card" id="fh-new-individual" style="display:none">
@@ -2824,7 +2823,7 @@ const Screens = {
         const ruleText = e.lossRule === 'partie-half'
           ? ' · pénalité 50 %'
           : (e.lossRule === 'mulot-supreme-500' ? ' · pénalité Mulot Suprême 500'
-            : ((e.lossRule === 'gros-mulot-320' || e.lossRule === 'gros-mulot-440') ? ` · pénalité Gros Mulot ${e.lossRule === 'gros-mulot-440' ? '440' : '320'}`
+            : ((e.lossRule === 'gros-mulot-330' || e.lossRule === 'gros-mulot-320' || e.lossRule === 'gros-mulot-440') ? ` · pénalité Gros Mulot ${e.lossRule === 'gros-mulot-440' ? '440' : (e.lossRule === 'gros-mulot-320' ? '320' : '330')}`
             : (e.lossRule === 'mulot-225' ? ' · pénalité Mulot 225'
             : (e.lossRule === 'mulot-230' ? ' · pénalité Mulot 230'
             : (e.lossRule === 'mulot-325' ? ' · pénalité Mulot 325'
@@ -2968,12 +2967,6 @@ const UI = {
       : '';
 
 
-    const mulotSupremeHtml = game?.mode === 'teams'
-      ? (interactive
-        ? `<button class="contract-btn fh-mulot-supreme-contract fh-mulot-between-row ${UI._selectedContract === FIVE_HUNDRED_MULOT_SUPREME.key ? 'selected' : ''}" onclick="UI.selectContract('${FIVE_HUNDRED_MULOT_SUPREME.key}')" data-key="${FIVE_HUNDRED_MULOT_SUPREME.key}"><span class="contract-inline-label"><span class="bid-text">MULOT SUPRÊME</span></span><small>500 / échec 500</small></button>`
-        : `<div class="fh-contract-value-cell fh-mulot-supreme-contract fh-mulot-between-row"><span class="contract-inline-label"><span class="bid-text">MULOT SUPRÊME</span></span><strong>500</strong><small>échec : 500</small></div>`)
-      : '';
-
     const rows = bids.map((bid) => {
       let row = '';
       if (game?.mode === 'teams' && bid === '8' && mulotHtml) row += mulotHtml;
@@ -2991,10 +2984,8 @@ const UI = {
       }).join('');
 
       // Les contrats spéciaux sont placés selon leur valeur gagnante :
-      // Gros Mulot 320 après les 8 (240 à 320), Mulot Suprême 500
-      // après les 9 (340 à 420) et avant les Parties (1040+).
+      // Gros Mulot 330 après les 8 (240 à 320) et avant les 9 (340 à 420).
       if (bid === '8' && grosMulotHtml) row += grosMulotHtml;
-      if (bid === '9' && mulotSupremeHtml) row += mulotSupremeHtml;
       return row;
     }).join('');
 
@@ -3023,14 +3014,12 @@ const UI = {
   fhTeamContractKeysInDisplayOrder() {
     const suits = ['♠','♣','♦','♥','NT'];
     // Même ordre que la grille visible, classé par valeur gagnante :
-    // Mulot 225, 8 (240 à 320), Gros Mulot 320, 9 (340 à 420),
-    // Mulot Suprême 500, puis Partie (1040 à 1120).
+    // Mulot 225, 8 (240 à 320), Gros Mulot 330, 9 (340 à 420), puis Partie (1040 à 1120).
     return [
       FIVE_HUNDRED_MULOT.key,
       ...suits.map(s => `8${s}`),
       FIVE_HUNDRED_GROS_MULOT.key,
       ...suits.map(s => `9${s}`),
-      FIVE_HUNDRED_MULOT_SUPREME.key,
       ...suits.map(s => `10${s}`),
     ];
   },
@@ -3600,7 +3589,7 @@ const UI = {
     entry.lossRule = success ? null : (Games.fiveHundred.isMulotContract(contractKey)
       ? 'mulot-225'
       : (Games.fiveHundred.isGrosMulotContract(contractKey)
-        ? 'gros-mulot-320'
+        ? 'gros-mulot-330'
         : (Games.fiveHundred.isMulotSupremeContract(contractKey)
           ? 'mulot-supreme-500'
           : (Games.fiveHundred.isGameContract(contractKey) ? 'partie-half' : 'full'))));
@@ -3648,8 +3637,8 @@ const UI = {
       <div class="fh-info-group fh-v24-rules">
         <div class="card-title">Règles 500 adaptées v2.8</div>
         <div class="setting-sub"><strong>Annonce de 7 :</strong> en équipes, le 7 est seulement une annonce et ne constitue pas une mise finale. Il n'est donc pas sélectionnable dans le pointage. À partir de 8, l'atout doit obligatoirement être précisé avant de prendre le minou.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Mulots :</strong> le petit Mulot consiste à prendre 4 cartes du milieu. Pour le Gros Mulot, le miseur échange une carte avec son collègue. Pour le Mulot Suprême, le miseur échange une carte avec son collègue puis joue son jeu sur la table. Dans les trois cas, le Joker peut être joué par n'importe quel joueur et devient automatiquement la carte la plus faible sur la table. Valeurs : Mulot 225 / échec 225, Gros Mulot 320 / échec 320, Mulot Suprême 500 / échec 500.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Les annonces de 8 et 9 doivent toujours préciser l'atout. Le Mulot, le Gros Mulot et le Mulot Suprême conservent leurs valeurs propres.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Mulots :</strong> le petit Mulot consiste à prendre 4 cartes du milieu. Pour le Gros Mulot, le miseur échange une carte avec son collègue puis joue son jeu sur la table. Dans les deux cas, le Joker peut être joué par n'importe quel joueur et devient automatiquement la carte la plus faible sur la table. Valeurs : Mulot 225 / échec 225, Gros Mulot 330 / échec 330.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Les annonces de 8 et 9 doivent toujours préciser l'atout. Le Mulot et le Gros Mulot conservent leurs valeurs propres.</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Partie chutée :</strong> les adversaires reçoivent 50 % de la valeur du contrat final. Valeurs affichées directement dans la grille : Partie ♠ 1040 / échec 520, Partie ♣ 1060 / échec 530, Partie ♦ 1080 / échec 540, Partie ♥ 1100 / échec 550, Partie S 1120 / échec 560.</div>
       </div>` : ''}
     `;
@@ -3724,7 +3713,7 @@ const UI = {
         <div id="fh-modal-opponent-tricks-panel" style="display:none"></div>
       `
       : `
-        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat final, puis le joueur qui a pris le contrat. Son équipe est déterminée automatiquement. En équipes, le 7 est une annonce seulement et n'est pas un contrat sélectionnable. À partir de 8, l'atout doit être précisé avant de prendre le minou. Pour chaque contrat Partie, la grille affiche aussi la valeur exacte d'un échec, soit 50 % du contrat : ♠ 520, ♣ 530, ♦ 540, ♥ 550, S 560. Rappel Mulots : petit Mulot = prendre 4 cartes du milieu; Gros Mulot = échanger une carte avec son collègue; Mulot Suprême = échanger une carte avec son collègue puis jouer le jeu du miseur sur la table. Pour les trois Mulots, le Joker peut être joué par n'importe qui et devient automatiquement la carte la plus faible sur la table.</div>
+        <div class="setting-sub" style="margin-bottom:12px">Sélectionnez le contrat final, puis le joueur qui a pris le contrat. Son équipe est déterminée automatiquement. En équipes, le 7 est une annonce seulement et n'est pas un contrat sélectionnable. À partir de 8, l'atout doit être précisé avant de prendre le minou. Pour chaque contrat Partie, la grille affiche aussi la valeur exacte d'un échec, soit 50 % du contrat : ♠ 520, ♣ 530, ♦ 540, ♥ 550, S 560. Rappel Mulots : petit Mulot = prendre 4 cartes du milieu; Gros Mulot = échanger une carte avec son collègue puis jouer le jeu du miseur sur la table. Pour les deux Mulots, le Joker peut être joué par n'importe qui et devient automatiquement la carte la plus faible sur la table.</div>
         ${this.fhContractTableHtml(true)}
         <div class="card-title" style="margin-top:14px">Joueur qui a pris le contrat</div>
         <div class="fh-player-select-grid" id="fh-modal-bidder-buttons"></div>
