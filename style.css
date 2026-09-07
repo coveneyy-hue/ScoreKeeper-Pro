@@ -2731,3 +2731,103 @@ body {
   .stats-player-breakdown-game summary { grid-template-columns:minmax(0,1fr) auto 52px; gap:6px; padding:10px 9px; }
   .stats-player-breakdown-contract { grid-template-columns:minmax(0,1fr) auto 58px; gap:6px; padding:8px 9px; }
 }
+
+/* v2.51 : ventilation des joueurs centrée sur les contrats */
+.stats-player-breakdown-contract-list {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.stats-player-breakdown-contract-item {
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--bg-elevated);
+  overflow:hidden;
+}
+.stats-player-breakdown-contract-item summary {
+  list-style:none;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto 68px;
+  gap:8px;
+  align-items:center;
+  padding:11px 12px;
+  cursor:pointer;
+  font-variant-numeric:tabular-nums;
+}
+.stats-player-breakdown-contract-item summary::-webkit-details-marker { display:none; }
+.stats-player-breakdown-contract-item summary::after {
+  content:'›';
+  grid-column:1 / -1;
+  justify-self:end;
+  height:0;
+  line-height:0;
+  color:var(--text-disabled);
+  transform:translateY(-7px) rotate(0deg);
+  transition:transform var(--transition);
+}
+.stats-player-breakdown-contract-item[open] summary::after {
+  transform:translateY(-7px) rotate(90deg);
+}
+.stats-player-breakdown-contract-name {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+.stats-player-breakdown-contract-name strong {
+  font-size:12px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.stats-player-breakdown-contract-name small {
+  color:var(--text-secondary);
+  font-size:9px;
+}
+.stats-player-breakdown-contract-item summary > strong {
+  min-width:58px;
+  text-align:right;
+  font-size:13px;
+}
+.stats-player-breakdown-contract-detail {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:1px;
+  padding-top:1px;
+  border-top:1px solid var(--border);
+  background:var(--border);
+}
+.stats-player-breakdown-contract-detail > div {
+  min-width:0;
+  padding:9px 11px;
+  background:var(--bg-card);
+}
+.stats-player-breakdown-contract-detail span {
+  display:block;
+  margin-bottom:2px;
+  color:var(--text-secondary);
+  font-size:8px;
+  text-transform:uppercase;
+  letter-spacing:.35px;
+}
+.stats-player-breakdown-contract-detail strong {
+  display:block;
+  font-size:10px;
+  line-height:1.35;
+  overflow-wrap:anywhere;
+}
+.stats-player-breakdown-contract-detail strong.is-success { color:var(--success); }
+.stats-player-breakdown-contract-detail strong.is-fail { color:var(--danger); }
+.stats-player-breakdown-contract-score {
+  grid-column:1 / -1;
+}
+@media (max-width:430px) {
+  .stats-player-breakdown-contract-item summary {
+    grid-template-columns:minmax(0,1fr) auto 58px;
+    gap:6px;
+    padding:10px 9px;
+  }
+  .stats-player-breakdown-contract-detail {
+    grid-template-columns:1fr;
+  }
+  .stats-player-breakdown-contract-score { grid-column:auto; }
+}
