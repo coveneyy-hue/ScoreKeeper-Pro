@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.49 : Mulot Suprême retiré, Gros Mulot à 330
+ * v2.50 : ventilation cliquable des joueurs dans les statistiques
  */
 
-const CACHE_NAME = 'scorekeeper-v2.49';
+const CACHE_NAME = 'scorekeeper-v2.50';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.49',
-  './app.js?v=2.49',
+  './style.css?v=2.50',
+  './app.js?v=2.50',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

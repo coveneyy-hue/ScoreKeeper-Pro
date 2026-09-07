@@ -2549,3 +2549,185 @@ body {
   .fh-contract-grid .fh-game-contract small { font-size: 10px; }
   .contract-failure-value { font-size: 9px; }
 }
+
+/* v2.50 - ventilation cliquable des joueurs dans les statistiques */
+.stats-player-link {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(167,139,250,.42);
+}
+.stats-player-link:active { opacity: .72; }
+.stats-impact-player-link { font-size: 14px; }
+.stats-impact-rank-row.is-leader .stats-player-link { color: var(--warning); }
+.stats-advanced-row .stats-player-link { display:block; font-size:12px; }
+
+.stats-player-breakdown {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.stats-player-breakdown-note,
+.stats-player-breakdown-help {
+  color:var(--text-secondary);
+  font-size:11px;
+  line-height:1.5;
+}
+.stats-player-breakdown-filters {
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  background:var(--bg-elevated);
+  color:var(--text-secondary);
+  font-size:10px;
+}
+.stats-player-breakdown-kpis {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+}
+.stats-player-breakdown-kpis > div {
+  min-width:0;
+  padding:10px 8px;
+  border-radius:var(--radius-sm);
+  background:var(--bg-elevated);
+  text-align:center;
+}
+.stats-player-breakdown-kpis span {
+  display:block;
+  color:var(--text-secondary);
+  font-size:9px;
+  margin-bottom:3px;
+}
+.stats-player-breakdown-kpis strong {
+  display:block;
+  font-size:17px;
+  font-variant-numeric:tabular-nums;
+}
+.stats-player-breakdown-games {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.stats-player-breakdown-game {
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--bg-elevated);
+  overflow:hidden;
+}
+.stats-player-breakdown-game summary {
+  list-style:none;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  gap:8px;
+  align-items:center;
+  padding:11px 12px;
+  cursor:pointer;
+  font-variant-numeric:tabular-nums;
+}
+.stats-player-breakdown-game summary::-webkit-details-marker { display:none; }
+.stats-player-breakdown-game summary > span:first-child {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+.stats-player-breakdown-game summary > span:first-child strong { font-size:12px; }
+.stats-player-breakdown-game summary > span:first-child small {
+  color:var(--text-secondary);
+  font-size:9px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.stats-player-breakdown-game summary > span:last-child {
+  min-width:54px;
+  text-align:right;
+  font-weight:900;
+  font-size:14px;
+}
+.stats-player-breakdown-result {
+  padding:3px 7px;
+  border-radius:999px;
+  background:var(--bg-card);
+  color:var(--text-secondary);
+  font-size:9px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.stats-player-breakdown-result.is-success { color:var(--success); }
+.stats-player-breakdown-result.is-fail { color:var(--danger); }
+.stats-player-breakdown-score {
+  padding:8px 12px;
+  border-top:1px solid var(--border);
+  color:var(--text-secondary);
+  font-size:9px;
+  line-height:1.45;
+}
+.stats-player-breakdown-contracts {
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+  border-top:1px solid var(--border);
+}
+.stats-player-breakdown-contract {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto 68px;
+  gap:8px;
+  align-items:center;
+  padding:9px 12px;
+  background:var(--bg-card);
+  font-variant-numeric:tabular-nums;
+}
+.stats-player-breakdown-contract > div {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+.stats-player-breakdown-contract > div strong {
+  font-size:11px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.stats-player-breakdown-contract > div small {
+  color:var(--text-secondary);
+  font-size:8px;
+}
+.stats-player-breakdown-contract > span {
+  font-size:9px;
+  font-weight:800;
+}
+.stats-player-breakdown-contract > span.is-success { color:var(--success); }
+.stats-player-breakdown-contract > span.is-fail { color:var(--danger); }
+.stats-player-breakdown-contract > strong {
+  text-align:right;
+  font-size:11px;
+}
+.stats-player-breakdown-empty {
+  padding:11px 12px;
+  background:var(--bg-card);
+  color:var(--text-secondary);
+  font-size:10px;
+}
+@media (max-width:430px) {
+  .stats-impact-player-link { font-size:13px; }
+  .stats-player-breakdown-kpis strong { font-size:15px; }
+  .stats-player-breakdown-game summary { grid-template-columns:minmax(0,1fr) auto 52px; gap:6px; padding:10px 9px; }
+  .stats-player-breakdown-contract { grid-template-columns:minmax(0,1fr) auto 58px; gap:6px; padding:8px 9px; }
+}
