@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.51';
+const APP_VERSION = '2.52';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -476,15 +476,17 @@ const FIVE_HUNDRED_OPEN_TEAM_SCORES = {
 const FIVE_HUNDRED_SELECTABLE_OPEN_TEAM_CONTRACTS = new Set(['7O']);
 
 // Contrats spéciaux en équipes.
-// Mulot : 0 levée, sans minou ni atout. Réussite = 225 points; échec = 225 points aux adversaires.
+// Mulot (petit Mulot) : objectif de 0 levée. Le joueur d'en face donne sa meilleure carte au miseur,
+// qui lui remet sa carte la plus faible. La main du miseur demeure cachée.
+// Réussite = 225 points; échec = 225 points aux adversaires.
 const FIVE_HUNDRED_MULOT = {
   key: 'MULOT',
   points: 225,
   failedOpponentPoints: 225,
 };
 
-// Gros Mulot : objectif de 0 levée. Le miseur échange une carte avec son collègue
-// puis joue son jeu sur la table. Réussite = 330 points; échec = 330 points aux adversaires.
+// Gros Mulot : objectif de 0 levée. Aucun échange de carte; le miseur joue toute sa main
+// face visible sur la table. Réussite = 330 points; échec = 330 points aux adversaires.
 const FIVE_HUNDRED_GROS_MULOT = {
   key: 'GROS_MULOT',
   points: 330,
@@ -3657,9 +3659,11 @@ const UI = {
       </div>
       ${game.mode === 'teams' ? `
       <div class="fh-info-group fh-v24-rules">
-        <div class="card-title">Règles 500 adaptées v2.8</div>
+        <div class="card-title">Règles 500 adaptées v2.52</div>
         <div class="setting-sub"><strong>Annonce de 7 :</strong> en équipes, le 7 est seulement une annonce et ne constitue pas une mise finale. Il n'est donc pas sélectionnable dans le pointage. À partir de 8, l'atout doit obligatoirement être précisé avant de prendre le minou.</div>
-        <div class="setting-sub" style="margin-top:8px"><strong>Mulots :</strong> le petit Mulot consiste à prendre 4 cartes du milieu. Pour le Gros Mulot, le miseur échange une carte avec son collègue puis joue son jeu sur la table. Dans les deux cas, le Joker peut être joué par n'importe quel joueur et devient automatiquement la carte la plus faible sur la table. Valeurs : Mulot 225 / échec 225, Gros Mulot 330 / échec 330.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Mulot (petit Mulot) :</strong> le but est de ne remporter aucune levée. Le joueur d'en face donne sa meilleure carte au miseur, puis le miseur lui remet sa carte la plus faible. La main du miseur demeure cachée. Valeur : 225 points / échec 225.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Gros Mulot :</strong> le but est également de ne remporter aucune levée. Il n'y a pas d'échange de carte avec le joueur d'en face. Le miseur dépose toute sa main face visible sur la table. Valeur : 330 points / échec 330.</div>
+        <div class="setting-sub" style="margin-top:8px"><strong>Jokers au Mulot :</strong> le Joker est toujours la carte la plus faible et n'appartient à aucune sorte. Si la sorte demandée est présente dans la main, elle doit être fournie. Si elle est absente et que le joueur possède un Joker, il doit obligatoirement jouer le Joker. Un Joker ne peut pas être joué en premier tant que le joueur possède une autre carte. S'il ne reste qu'un ou deux Jokers et qu'un Joker doit ouvrir la levée, la première carte normale jouée ensuite détermine la sorte demandée; la plus forte carte de cette sorte remporte la levée. Un Joker restant à la fin demeure la carte la plus faible.</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Surenchère :</strong> un joueur encore actif peut remonter sa propre enchère lors d'un tour suivant. Les annonces de 8 et 9 doivent toujours préciser l'atout. Le Mulot et le Gros Mulot conservent leurs valeurs propres.</div>
         <div class="setting-sub" style="margin-top:8px"><strong>Partie chutée :</strong> les adversaires reçoivent 50 % de la valeur du contrat final. Valeurs affichées directement dans la grille : Partie ♠ 1040 / échec 520, Partie ♣ 1060 / échec 530, Partie ♦ 1080 / échec 540, Partie ♥ 1100 / échec 550, Partie S 1120 / échec 560.</div>
       </div>` : ''}
