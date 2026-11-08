@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.55 : statistiques unifiées pour tous les jeux
+ * v2.56 : saisie du 500 sur l'écran, partage de la sauvegarde
  */
 
-const CACHE_NAME = 'scorekeeper-v2.55';
+const CACHE_NAME = 'scorekeeper-v2.56';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.55',
-  './app.js?v=2.55',
+  './style.css?v=2.56',
+  './app.js?v=2.56',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

@@ -3273,3 +3273,19 @@ button.home-kpi { cursor: pointer; }
   .unified-comp { grid-template-columns: minmax(0, 1fr) 70px 48px; }
   .unified-comp .index-bar { width: 70px; }
 }
+
+/* ================================================================
+   ScoreKeeper Pro 2.56 : saisie du 500 en équipe directement sur l'écran
+   ================================================================ */
+[hidden] { display: none !important; }
+.fh-inline-step { font-size: 15px; font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
+.fh-inline-entry .fh-contract-table { margin: 0; }
+.fh-inline-entry .contract-btn { min-height: 56px; }
+.fh-inline-entry .team-select-btn { min-height: 56px; font-size: 17px; }
+.fh-inline-entry .fh-team-result-hint { font-size: 15px; min-height: 22px; }
+.fh-inline-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
+.fh-inline-results .btn { min-height: 64px; font-size: 19px; font-weight: 700; color: #0E1015; }
+.fh-inline-results .fh-result-win { background: var(--success); }
+.fh-inline-results .fh-result-lose { background: var(--danger); }
+.fh-inline-results .btn:disabled { opacity: .35; }
+.fh-contract-edit-btn { min-width: 44px; min-height: 44px; }

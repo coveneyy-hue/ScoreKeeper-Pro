@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.55';
+const APP_VERSION = '2.56';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -2352,6 +2352,26 @@ const Screens = {
     UI._selectedContract = null;
     UI._selectedTeam = null;
     UI.resetFhIndividualFlow();
+
+    // En équipes, la saisie se fait directement sur l'écran (même logique que l'ancienne fenêtre).
+    // En individuel, la fenêtre reste, car elle demande ensuite les levées des adversaires.
+    const inlineAvailable = game.mode === 'teams' && game.status !== 'finished' && !game.series?.finished && !winner;
+    const inline = document.getElementById('fh-inline-entry');
+    if (inline) inline.hidden = !inlineAvailable;
+    const footerNull = document.getElementById('fh-footer-null');
+    if (footerNull) footerNull.hidden = !inlineAvailable;
+    const footerResult = document.getElementById('fh-footer-result');
+    if (footerResult) footerResult.hidden = game.mode === 'teams';
+    if (inlineAvailable) {
+      const nextName = Games.fiveHundred.nextBidder(game)?.name;
+      const hand = (game.history || []).filter(e => e && (e.kind === 'contract' || e.kind === 'nullDeal') && (e.seriesGameNumber || 1) === (game.series?.gameNumber || 1)).length + 1;
+      document.getElementById('fh-inline-title').textContent = `Saisir la donne ${hand}`;
+      document.getElementById('fh-inline-contracts').innerHTML = UI.fhContractTableHtml(true);
+      const hint = document.getElementById('fh-team-result-hint');
+      if (hint) hint.innerHTML = nextName ? `Première mise : <strong>${Utils.esc(nextName)}</strong>` : '';
+      UI.renderFhEntityButtons();
+      UI.updateFhSubmitBtn();
+    }
     UI.updateGameTimerDisplay();
   },
 
@@ -5154,6 +5174,13 @@ const UI = {
     if (game.status !== 'finished') setTimeout(() => UI.announceFhStarter(true), 120);
   },
 
+  /** Partie nulle depuis la barre du bas : une confirmation évite un toucher accidentel. */
+  async fhNullDealConfirm() {
+    const points = await DB.getSetting('fiveHundredNullPoints', DEFAULT_FIVE_HUNDRED_NULL_POINTS);
+    if (!confirm(`Enregistrer une partie nulle? (+${points} points aux deux équipes, sauf si une équipe atteindrait 1000)`)) return;
+    await this.fhNullDeal();
+  },
+
   async fhNullDeal() {
     this.unlockFhSound();
     const game = State.currentGame;
@@ -5339,6 +5366,54 @@ const UI = {
     });
   },
 
+  /** Partage la sauvegarde complète (OneDrive, Drive, courriel…) avec le menu de partage d'Android. */
+  async shareBackup() {
+    const { data, games } = await this.buildBackupData();
+    const text = JSON.stringify(data, null, 2);
+    const base = `scorekeeper-backup-${new Date().toISOString().slice(0,10)}`;
+    // Chrome sur Android refuse souvent les fichiers .json au partage : on tente .json,
+    // puis .json.txt (même contenu, accepté aussi par « Restaurer »).
+    const candidates = [
+      new File([text], `${base}.json`, { type: 'application/json' }),
+      new File([text], `${base}.json.txt`, { type: 'text/plain' }),
+    ];
+    const file = navigator.canShare ? candidates.find(f => navigator.canShare({ files: [f] })) : null;
+    if (!file || !navigator.share) {
+      Utils.toast('Le partage n’est pas offert sur cet appareil : la sauvegarde est téléchargée à la place.', 'info', 4500);
+      return this.exportData();
+    }
+    try {
+      await navigator.share({ files: [file], title: 'Sauvegarde ScoreKeeper Pro' });
+    } catch (err) {
+      Utils.toast(err?.name === 'AbortError' ? 'Partage annulé' : 'Le partage a échoué', 'info');
+      return;
+    }
+    localStorage.setItem('lastFullBackupAt', String(Date.now()));
+    Utils.toast(`Sauvegarde partagée : ${games.length} partie(s)`, 'success', 3500);
+    if (State.currentScreen === 'home') Screens.render_home();
+  },
+
+  async buildBackupData() {
+    const [games, settings, logs] = await Promise.all([
+      DB.getAll('games'),
+      DB.getAll('settings'),
+      DB.getAll('logs'),
+    ]);
+    const data = {
+      format: 'scorekeeper-pro-full-backup',
+      formatVersion: 3,
+      version: APP_VERSION,
+      timersIncluded: true,
+      statsFormulaVersions: { impactIndex: IMPACT_INDEX_FORMULA_VERSION },
+      exportedAt: new Date().toISOString(),
+      data: { games, settings, logs, localStorage: this.getLocalPreferences() },
+      // Conserver ces champs au premier niveau pour compatibilité avec les anciennes versions.
+      games, settings, logs,
+      localStorage: this.getLocalPreferences(),
+    };
+    return { data, games };
+  },
+
   async exportData() {
     const [games, settings, logs] = await Promise.all([
       DB.getAll('games'),
@@ -5389,7 +5464,7 @@ const UI = {
   importData() {
     const input = document.createElement('input');
     input.type  = 'file';
-    input.accept = '.json,application/json';
+    input.accept = '.json,.txt,application/json,text/plain';
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -5913,6 +5988,19 @@ function buildScreenHTML() {
         <button class="btn btn-primary btn-sm" onclick="UI.endGame()">Terminer</button>
       </div>
 
+      <section class="game-panel fh-inline-entry" id="fh-inline-entry" aria-label="Saisir le résultat" hidden>
+        <div class="game-panel-head"><h2 class="game-panel-title" id="fh-inline-title">Saisir le résultat</h2><span class="game-panel-hint">1 Contrat · 2 Qui a pris · 3 Résultat</span></div>
+        <div class="fh-inline-step">Contrat</div>
+        <div id="fh-inline-contracts"></div>
+        <div class="fh-inline-step">Qui a pris?</div>
+        <div class="fh-player-select-grid" id="fh-bidder-buttons"></div>
+        <div class="setting-sub fh-team-result-hint" id="fh-team-result-hint"></div>
+        <div class="fh-inline-results">
+          <button class="btn fh-result-win" id="fh-btn-success" onclick="UI.fhApplyResult(true)" disabled>Réussi</button>
+          <button class="btn fh-result-lose" id="fh-btn-fail" onclick="UI.fhApplyResult(false)" disabled>Chuté</button>
+        </div>
+      </section>
+
       <section class="card fh-contract-list-card game-panel" aria-label="Liste des contrats">
         <div class="game-panel-head"><h2 class="game-panel-title">Contrats, ajustements et parties nulles</h2></div>
         <div class="setting-sub fh-contract-list-note">Du plus récent au plus vieux. Touche ✎ pour corriger une ligne.</div>
@@ -5924,8 +6012,9 @@ function buildScreenHTML() {
         <strong id="fh-starter-callout-name">—</strong>
       </div>
       <div class="game-footer">
+        <button class="btn btn-secondary" id="fh-footer-null" onclick="UI.fhNullDealConfirm()" hidden>Partie nulle</button>
         <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">Ajustement</button>
-        <button class="btn btn-primary game-primary" onclick="UI.openFhResultModal()">Saisir le résultat</button>
+        <button class="btn btn-primary game-primary" id="fh-footer-result" onclick="UI.openFhResultModal()">Saisir le résultat</button>
       </div>
     </div>
 
@@ -5954,10 +6043,13 @@ function buildScreenHTML() {
       <div class="card">
         <div class="card-title">Données</div>
         <div class="setting-sub" style="margin-bottom:14px">Tes parties ne sont gardées que sur cet appareil. Une sauvegarde complète régulière te protège si la tablette est perdue ou réinitialisée.</div>
+        <button class="btn btn-primary btn-sm" onclick="UI.shareBackup()">Partager la sauvegarde (OneDrive, Drive…)</button>
+        <div style="height:10px"></div>
         <div class="btn-row">
-          <button class="btn btn-primary btn-sm" onclick="UI.exportData()">Sauvegarde complète</button>
+          <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">Télécharger la sauvegarde</button>
           <button class="btn btn-secondary btn-sm" onclick="UI.importData()">Restaurer</button>
         </div>
+        <div class="setting-sub" style="margin-top:10px">« Partager » ouvre le menu d’Android : choisis OneDrive ou Drive pour garder une copie hors de la tablette. Pour restaurer, choisis ce fichier avec « Restaurer », même s’il se termine par .txt.</div>
         <div style="height:10px"></div>
         <button class="btn btn-danger btn-sm" onclick="UI.resetAllData()">Réinitialiser toutes les données</button>
         <div class="setting-sub" style="margin-top:12px">ScoreKeeper Pro · version ${APP_VERSION}</div>
