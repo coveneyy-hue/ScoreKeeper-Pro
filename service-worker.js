@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.56 : saisie du 500 sur l'écran, partage de la sauvegarde
+ * v2.57 : partage de la sauvegarde corrigé (.json.txt direct, téléchargement en secours)
  */
 
-const CACHE_NAME = 'scorekeeper-v2.56';
+const CACHE_NAME = 'scorekeeper-v2.57';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.56',
-  './app.js?v=2.56',
+  './style.css?v=2.57',
+  './app.js?v=2.57',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

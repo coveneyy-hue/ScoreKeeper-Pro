@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.56';
+const APP_VERSION = '2.57';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -5371,22 +5371,20 @@ const UI = {
     const { data, games } = await this.buildBackupData();
     const text = JSON.stringify(data, null, 2);
     const base = `scorekeeper-backup-${new Date().toISOString().slice(0,10)}`;
-    // Chrome sur Android refuse souvent les fichiers .json au partage : on tente .json,
-    // puis .json.txt (même contenu, accepté aussi par « Restaurer »).
-    const candidates = [
-      new File([text], `${base}.json`, { type: 'application/json' }),
-      new File([text], `${base}.json.txt`, { type: 'text/plain' }),
-    ];
-    const file = navigator.canShare ? candidates.find(f => navigator.canShare({ files: [f] })) : null;
-    if (!file || !navigator.share) {
+    // Chrome sur Android refuse au partage les fichiers .json, même quand canShare() répond oui :
+    // la sauvegarde part donc directement en .json.txt (accepté aussi par « Restaurer »).
+    const file = new File([text], `${base}.json.txt`, { type: 'text/plain' });
+    if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
       Utils.toast('Le partage n’est pas offert sur cet appareil : la sauvegarde est téléchargée à la place.', 'info', 4500);
       return this.exportData();
     }
     try {
       await navigator.share({ files: [file], title: 'Sauvegarde ScoreKeeper Pro' });
     } catch (err) {
-      Utils.toast(err?.name === 'AbortError' ? 'Partage annulé' : 'Le partage a échoué', 'info');
-      return;
+      if (err?.name === 'AbortError') { Utils.toast('Partage annulé', 'info'); return; }
+      console.warn('Partage de la sauvegarde refusé :', err);
+      Utils.toast(`Le partage a échoué (${err?.name || 'erreur'}) : la sauvegarde est téléchargée à la place.`, 'info', 4500);
+      return this.exportData();
     }
     localStorage.setItem('lastFullBackupAt', String(Date.now()));
     Utils.toast(`Sauvegarde partagée : ${games.length} partie(s)`, 'success', 3500);
