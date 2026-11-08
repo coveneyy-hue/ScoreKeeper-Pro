@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.53';
+const APP_VERSION = '2.54';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -19,6 +19,7 @@ const PASSWORD_SETTING_KEYS = {
 
 const DEFAULT_FIVE_HUNDRED_NULL_POINTS = 50;
 const DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS = 50;
+const DEFAULT_HEARTS_END_SCORE = 100;
 
 /* ================================================================
    SECTION 1 : BASE DE DONNÉES (IndexedDB)
@@ -1812,39 +1813,62 @@ const Screens = {
   },
 
   /* ─── Hearts ─── */
-  render_hearts(data) {
+  async render_hearts() {
     if (!State.currentGame || State.currentGame.type !== 'hearts') return;
     const game = State.currentGame;
+    UI._heartsLimit = await UI.heartsEndScore();
+    const limit = UI._heartsLimit;
+    const nextRound = game.round + 1;
 
-    document.getElementById('hearts-round-num').textContent  = `Round ${game.round}`;
-    document.getElementById('hearts-total-val').textContent  = game.players.reduce((s,p) => s+p.score, 0);
-    document.getElementById('hearts-expected').textContent   = `Attendu : ${game.round * 25}`;
+    document.getElementById('hearts-sub').textContent =
+      `Manche ${nextRound} · ${limit > 0 ? `fin à ${limit} points` : 'sans limite de points'} · le plus bas gagne`;
+    document.getElementById('hearts-entry-title').textContent = `Saisir la manche ${nextRound}`;
+    document.getElementById('hearts-submit').textContent = `Valider la manche ${nextRound}`;
 
-    // Scores
-    const scoresEl = document.getElementById('hearts-scores');
-    const minScore = Math.min(...game.players.map(p => p.score));
-    scoresEl.innerHTML = game.players.map((p, i) => `
-      <div class="score-row ${p.score === minScore ? 'leader' : ''}">
-        <div class="score-player-name">${Utils.esc(p.name)}</div>
-        <div class="score-value">${p.score}</div>
-      </div>
-    `).join('');
+    // Cartes de score, du plus bas (en tête) au plus haut.
+    const last = game.history[game.history.length - 1];
+    const lastDelta = (name) => last?.scores?.find(s => s.player === name)?.delta;
+    const ranked = game.players.map((p, i) => ({ ...p, idx: i })).sort((a, b) => a.score - b.score);
+    const rankOf = (score) => ranked.findIndex(p => p.score === score) + 1;
+    document.getElementById('hearts-scores').innerHTML = ranked.map(p => {
+      const rank = rankOf(p.score);
+      const d = lastDelta(p.name);
+      return `<div class="score-card ${rank === 1 ? 'leader' : ''}">
+        <div class="score-card-rank">${rank === 1 ? '1er' : `${rank}e`}</div>
+        <div class="score-card-name">${Utils.esc(p.name)}</div>
+        <div class="score-card-value">${p.score}</div>
+        <div class="score-card-sub">${d === undefined ? 'Aucune manche' : `${Utils.signed(d)} dernière`}${limit > 0 ? ` · reste ${Math.max(0, limit - p.score)}` : ''}</div>
+      </div>`;
+    }).join('');
 
-    // Formulaire de saisie du round
-    const entryEl = document.getElementById('hearts-round-entry');
-    entryEl.innerHTML = game.players.map((p, i) => `
-      <div class="round-entry-player">
-        <div class="rep-name">${Utils.esc(p.name)}</div>
-        <div class="rep-controls">
-          <button class="rep-btn" onclick="UI.heartsAdjust(${i}, -1)">−</button>
-          <input class="rep-input" type="number" id="hearts-delta-${i}" value="0" min="0" max="26"
-            oninput="UI.heartsUpdateTotal()">
-          <button class="rep-btn" onclick="UI.heartsAdjust(${i}, 1)">+</button>
-        </div>
-      </div>
-    `).join('');
+    // Brouillon de la manche en cours : cœurs par joueur et qui a reçu la Dame.
+    const draft = UI._heartsDraft;
+    if (!draft || draft.gameId !== game.id || draft.round !== game.round || draft.hearts.length !== game.players.length) {
+      UI._heartsDraft = { gameId: game.id, round: game.round, hearts: game.players.map(() => 0), queen: null };
+    }
+    document.getElementById('hearts-round-entry').innerHTML = game.players.map((p, i) => `
+      <div class="hearts-row">
+        <span class="hearts-row-name">${Utils.esc(p.name)}</span>
+        <button type="button" class="hearts-queen-btn" id="hearts-queen-${i}" onclick="UI.heartsToggleQueen(${i})" aria-pressed="false">Dame ♠ +13</button>
+        <button type="button" class="stepper-btn" onclick="UI.heartsAdjust(${i}, -1)" aria-label="Retirer un cœur à ${Utils.esc(p.name)}">−</button>
+        <span class="stepper-value" id="hearts-value-${i}" aria-live="polite">0</span>
+        <button type="button" class="stepper-btn" onclick="UI.heartsAdjust(${i}, 1)" aria-label="Ajouter un cœur à ${Utils.esc(p.name)}">+</button>
+      </div>`).join('');
 
-    UI.heartsUpdateTotal();
+    // Dernières manches.
+    const rounds = game.history.slice(-3).reverse();
+    document.getElementById('hearts-recent').innerHTML = `
+      <div class="game-recent-head"><span>Dernières manches</span><button type="button" class="home-link-btn" onclick="UI.goHistory()">Tout voir</button></div>
+      ${rounds.length ? `<div class="hearts-table">
+        <div class="hearts-table-row head" style="--cols:${game.players.length}"><span>Manche</span>${game.players.map(p => `<span>${Utils.esc(p.name)}</span>`).join('')}</div>
+        ${rounds.map(r => `<div class="hearts-table-row" style="--cols:${game.players.length}"><span class="muted">${r.round}</span>${game.players.map(p => {
+          const s = r.scores.find(x => x.player === p.name);
+          const queen = r.queenTo === p.name;
+          return `<span>${s ? s.delta : '—'}${queen ? ' <span class="queen-mark" title="A reçu la Dame de pique">♠</span>' : ''}</span>`;
+        }).join('')}</div>`).join('')}
+      </div>` : '<div class="result-empty">Aucune manche jouée.</div>'}`;
+
+    UI.heartsRefreshEntry();
   },
 
   /* ─── Magic ─── */
@@ -1852,6 +1876,8 @@ const Screens = {
     if (!State.currentGame || State.currentGame.type !== 'magic') return;
     const game = State.currentGame;
 
+    const alive = game.players.filter(p => !p.dead).length;
+    document.getElementById('magic-sub').textContent = `${alive} joueur${alive > 1 ? 's' : ''} en vie sur ${game.players.length} · départ à ${game.startingLife} points de vie`;
     const grid = document.getElementById('magic-players-grid');
     grid.innerHTML = game.players.map((p, i) => {
       const pct = p.life / game.startingLife;
@@ -1883,24 +1909,32 @@ const Screens = {
     let winner = game.winnerName ? list.find(e => e.name === game.winnerName) : null;
     if (!winner && game.mode === 'individual') winner = list.find(e => e.score >= 1000) || null;
 
-    document.getElementById('fh-screen-title').textContent = game.mode === 'individual' ? '🃏 500 individuel' : '🃏 Jeu de 500';
+    document.getElementById('fh-screen-title').textContent = game.mode === 'individual' ? '500 individuel' : 'Jeu de 500 en équipe';
     if (game.mode === 'individual') {
-      document.getElementById('fh-mode-badge').textContent = 'Individuel · 1000 pts';
+      document.getElementById('fh-mode-badge').textContent = `${game.players.length} joueurs · victoire à 1000`;
     } else {
       const series = game.series;
       const label = series.bestOf === 1 ? '1 partie' : `${series.winsNeeded} de ${series.bestOf}`;
-      document.getElementById('fh-mode-badge').textContent = `Équipes · 1000 pts · ${label}`;
+      document.getElementById('fh-mode-badge').textContent = `Partie ${series.gameNumber || 1} · série ${series.wins?.[0] || 0}-${series.wins?.[1] || 0} · ${label} · victoire à 1000`;
     }
 
     const teamsEl = document.getElementById('fh-teams');
     teamsEl.classList.toggle('individual', game.mode === 'individual');
-    teamsEl.innerHTML = list.map((t, i) => `
-      <div class="team-card ${winner === t ? 'winner' : ''}">
-        <div class="team-name">${Utils.esc(t.name)}</div>
-        <div class="team-score ${t.score < 0 ? 'negative' : 'positive'}">${t.score}</div>
-        ${game.mode === 'teams' ? `<div class="score-badge">Victoires série : ${game.series?.wins?.[i] || 0}/${game.series?.winsNeeded || 1}</div>` : ''}
-      </div>
-    `).join('');
+    const topScore = Math.max(...list.map(t => t.score));
+    teamsEl.innerHTML = list.map((t, i) => {
+      const pct = Math.max(0, Math.min(100, (t.score / 1000) * 100));
+      const leading = list.length > 1 && t.score === topScore && list.filter(x => x.score === topScore).length === 1;
+      const dots = game.mode === 'teams'
+        ? Array.from({ length: game.series?.winsNeeded || 1 }, (_, k) => k < (game.series?.wins?.[i] || 0) ? '●' : '○').join(' ')
+        : '';
+      return `
+      <div class="team-card score-card ${winner === t ? 'winner' : ''} ${leading ? 'leader' : ''}">
+        <div class="score-card-top"><span class="team-name">${Utils.esc(t.name)}</span>${leading ? '<span class="score-card-flag">EN TÊTE</span>' : ''}</div>
+        <div class="team-score score-card-value ${t.score < 0 ? 'negative' : 'positive'}">${t.score}</div>
+        <div class="score-progress"><div style="width:${pct}%"></div></div>
+        <div class="score-card-sub"><span>${t.score >= 1000 ? 'Victoire' : `Il manque ${1000 - t.score}`}</span>${dots ? `<span aria-label="Victoires dans la série : ${game.series?.wins?.[i] || 0}">Série ${dots}</span>` : ''}</div>
+      </div>`;
+    }).join('');
 
     const contractListEl = document.getElementById('fh-contract-list');
     if (contractListEl) contractListEl.innerHTML = UI.fhContractListHtml();
@@ -1939,6 +1973,7 @@ const Screens = {
     if (!State.currentGame || State.currentGame.type !== 'generic') return;
     const game = State.currentGame;
 
+    document.getElementById('generic-sub').textContent = `${game.players.length} joueurs · ${game.scoreLimit ? `victoire à ${game.scoreLimit} points` : 'sans limite de points'}`;
     const container = document.getElementById('generic-players');
     const winner = game.players.find(p => game.scoreLimit && p.score >= game.scoreLimit);
     container.innerHTML = game.players.map((p, i) => `
@@ -1982,6 +2017,8 @@ const Screens = {
     if (nullPointsEl) nullPointsEl.value = await DB.getSetting('fiveHundredNullPoints', DEFAULT_FIVE_HUNDRED_NULL_POINTS);
     const manualAdjustEl = document.getElementById('fh-manual-adjust-points-setting');
     if (manualAdjustEl) manualAdjustEl.value = await DB.getSetting('fiveHundredManualAdjustPoints', DEFAULT_FIVE_HUNDRED_MANUAL_ADJUST_POINTS);
+    const heartsEndEl = document.getElementById('hearts-end-score-setting');
+    if (heartsEndEl) heartsEndEl.value = await UI.heartsEndScore();
 
     // Afficher combien de parties encore actives peuvent être archivées en une seule action.
     const games = await DB.getAll('games');
@@ -4263,42 +4300,136 @@ const UI = {
   },
 
   /* ─── HEARTS ─── */
+  /** Seuil de fin de la Dame de Pique (Réglages). 0 = aucune fin automatique. */
+  async heartsEndScore() {
+    const v = Number(await DB.getSetting('heartsEndScore', DEFAULT_HEARTS_END_SCORE));
+    return Number.isFinite(v) && v >= 0 ? v : DEFAULT_HEARTS_END_SCORE;
+  },
+
+  heartsDeltas() {
+    const d = this._heartsDraft;
+    return d.hearts.map((h, i) => h + (d.queen === i ? 13 : 0));
+  },
+
   heartsAdjust(playerIdx, dir) {
-    const input = document.getElementById(`hearts-delta-${playerIdx}`);
-    input.value = Math.max(0, parseInt(input.value || 0) + dir);
+    const d = this._heartsDraft;
+    if (!d) return;
+    d.hearts[playerIdx] = Math.max(0, d.hearts[playerIdx] + dir);
+    this.heartsRefreshEntry();
+  },
+
+  /** La Dame de pique ne va qu'à un seul joueur par manche. */
+  heartsToggleQueen(playerIdx) {
+    const d = this._heartsDraft;
+    if (!d) return;
+    d.queen = d.queen === playerIdx ? null : playerIdx;
+    this.heartsRefreshEntry();
+  },
+
+  heartsResetDraft() {
+    const d = this._heartsDraft;
+    if (!d) return;
+    d.hearts = d.hearts.map(() => 0);
+    d.queen = null;
+    this.heartsRefreshEntry();
+  },
+
+  heartsRefreshEntry() {
+    const game = State.currentGame;
+    const d = this._heartsDraft;
+    if (!game || !d) return;
+    const deltas = this.heartsDeltas();
+    deltas.forEach((v, i) => {
+      const valueEl = document.getElementById(`hearts-value-${i}`);
+      if (valueEl) valueEl.textContent = v;
+      const queenEl = document.getElementById(`hearts-queen-${i}`);
+      if (queenEl) queenEl.setAttribute('aria-pressed', String(d.queen === i));
+    });
     this.heartsUpdateTotal();
   },
 
   heartsUpdateTotal() {
     const game = State.currentGame;
-    const deltas = game.players.map((_, i) => parseInt(document.getElementById(`hearts-delta-${i}`)?.value || 0));
+    if (!game || !this._heartsDraft) return;
+    const deltas = this.heartsDeltas();
     const current = game.players.reduce((s, p) => s + p.score, 0);
     const roundTotal = deltas.reduce((s, d) => s + d, 0);
-    const newTotal  = current + roundTotal;
-    const expected  = (game.round + 1) * 25;
-
+    const valid = current + roundTotal === (game.round + 1) * 25;
+    const box = document.getElementById('hearts-round-total-box');
+    if (box) box.classList.toggle('valid', valid);
     const numEl = document.getElementById('hearts-round-total');
-    const valid = newTotal === expected;
-    numEl.textContent = `${roundTotal} pts → Total : ${newTotal}`;
-    numEl.className = `round-total-num ${valid ? 'valid' : 'invalid'}`;
-
-    document.getElementById('hearts-expected-total').textContent = `Attendu : ${expected} pts`;
-    document.getElementById('hearts-submit').disabled = !valid;
+    if (numEl) numEl.textContent = `${roundTotal} / 25${valid ? ' ✓' : ''}`;
+    const btn = document.getElementById('hearts-submit');
+    if (btn) btn.disabled = !valid;
   },
 
   async heartsSubmitRound() {
     const game = State.currentGame;
-    const deltas = game.players.map((_, i) => parseInt(document.getElementById(`hearts-delta-${i}`)?.value || 0));
+    const d = this._heartsDraft;
+    if (!game || !d) return;
+    const deltas = this.heartsDeltas();
     const result = Games.hearts.submitRound(game, deltas);
 
     if (!result.ok) {
       Utils.toast(result.msg, 'error');
       return;
     }
+    // Qui a reçu la Dame : utile aux statistiques de la Dame de Pique.
+    const entry = game.history[game.history.length - 1];
+    if (entry) {
+      entry.queenIdx = d.queen;
+      entry.queenTo = d.queen === null ? null : game.players[d.queen].name;
+    }
 
     await DB.save('games', game);
-    Utils.toast(`Round ${result.round} validé !`, 'success');
-    Screens.render_hearts();
+    this._heartsDraft = null;
+    Utils.toast(`Manche ${result.round} validée`, 'success');
+    await Screens.render_hearts();
+    await this.heartsCheckEnd(game);
+  },
+
+  /** Fin automatique : dès qu'un joueur atteint le seuil, le plus bas pointage gagne. */
+  async heartsCheckEnd(game) {
+    const limit = await this.heartsEndScore();
+    if (!(limit > 0) || !game.players.some(p => p.score >= limit)) return;
+    const ranked = [...game.players].sort((a, b) => a.score - b.score);
+    const best = ranked[0].score;
+    const winners = ranked.filter(p => p.score === best);
+    const html = `
+      <div class="end-podium">
+        ${ranked.map((p, i) => `<div class="end-podium-row ${p.score === best ? 'winner' : ''}"><span>${i + 1}</span><strong>${Utils.esc(p.name)}</strong><span>${p.score} pts</span></div>`).join('')}
+      </div>
+      <div class="setting-sub" style="margin:14px 0">${winners.length === 1
+        ? `${Utils.esc(winners[0].name)} gagne : un joueur a atteint ${limit} points.`
+        : `Égalité en tête entre ${winners.map(w => Utils.esc(w.name)).join(' et ')} : tu pourras choisir le gagnant.`}</div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="UI.closeAppModal()">Continuer la partie</button>
+        <button class="btn btn-primary" onclick="UI.closeAppModal();UI.archiveCurrentGame()">Terminer et archiver</button>
+      </div>`;
+    this.openAppModal('Fin de la partie', html);
+  },
+
+  async saveHeartsEndScoreSetting() {
+    const input = document.getElementById('hearts-end-score-setting');
+    const value = parseInt(input?.value ?? '', 10);
+    if (!Number.isFinite(value) || value < 0) { Utils.toast('Entre un nombre de 0 ou plus', 'error'); return; }
+    await DB.setSetting('heartsEndScore', value);
+    Utils.toast(value > 0 ? `Fin de partie à ${value} points` : 'Aucune fin automatique', 'success');
+  },
+
+  /** Menu ⋯ commun à tous les écrans de partie. */
+  openGameMenu() {
+    const game = State.currentGame;
+    if (!game) return;
+    const isSeries = game.type === 'fiveHundred' && game.mode === 'teams';
+    const html = `<div class="game-menu">
+      <button class="btn btn-secondary" onclick="UI.closeAppModal();UI.goHistory()">Historique des mouvements</button>
+      ${game.type === 'fiveHundred' ? `<button class="btn btn-secondary" onclick="UI.closeAppModal();UI.openFhInfoModal()">Règles et barème du 500</button>` : ''}
+      ${game.type === 'hearts' ? `<button class="btn btn-secondary" onclick="UI.closeAppModal();Router.go('settings')">Changer le seuil de fin</button>` : ''}
+      <button class="btn btn-secondary" onclick="UI.closeAppModal();UI.exportCurrentGame()">Exporter cette partie</button>
+      <button class="btn btn-danger" onclick="UI.closeAppModal();UI.endGame()">${isSeries ? 'Terminer la série' : 'Terminer la partie'}</button>
+    </div>`;
+    this.openAppModal('Options de la partie', html);
   },
 
   /* ─── MAGIC ─── */
@@ -5135,7 +5266,13 @@ const UI = {
       ? `La série n'est pas terminée (${game.series.wins[0]}-${game.series.wins[1]}). Archiver quand même ? Les parties déjà complétées resteront dans les statistiques.`
       : 'Terminer la partie ? Elle sera archivée.';
     if (!confirm(msg)) return;
+    await this.archiveCurrentGame();
+  },
 
+  /** Archive la partie courante (gagnant, chronos, statistiques) sans redemander confirmation. */
+  async archiveCurrentGame() {
+    if (!State.currentGame) return;
+    const game = State.currentGame;
     if (!(game.type === 'fiveHundred' && game.mode === 'teams' && game.series?.games?.length)) {
       if (!this.resolveWinnerBeforeArchive(game)) return;
     }
@@ -5182,6 +5319,25 @@ const UI = {
 /* ================================================================
    SECTION 9 : HTML DES ÉCRANS (injection dynamique)
    ================================================================ */
+
+/** En-tête commun à tous les écrans de partie : retour, titre, sous-titre, chrono et menu. */
+function gameHeaderHtml(title, subId, titleId = '') {
+  return `<div class="game-head">
+    <button class="btn-back" onclick="Router.go('home')" aria-label="Retour à l'accueil">‹</button>
+    <div class="game-head-text">
+      <div class="game-head-title"><span class="game-dot" aria-hidden="true"></span><span ${titleId ? `id="${titleId}"` : ''}>${title}</span></div>
+      <div class="game-head-sub" id="${subId}"></div>
+    </div>
+    <div class="game-timer-pill" aria-label="Temps de partie">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M10 2h4"/></svg>
+      <strong data-game-timer-value>00:00</strong>
+      <span class="visually-hidden" data-game-timer-label></span>
+    </div>
+    <button class="btn-back" onclick="UI.openGameMenu()" aria-label="Plus d'options">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    </button>
+  </div>`;
+}
 
 function buildScreenHTML() {
   document.getElementById('app').innerHTML = `
@@ -5271,157 +5427,85 @@ function buildScreenHTML() {
     </div>
 
     <!-- ══ DAME DE PIQUE ══ -->
-    <div class="screen" id="screen-hearts">
-      <div class="app-header">
-        <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title">♠ Dame de Pique</div>
-        <div class="header-actions">
-          <button class="btn-back" onclick="UI.goHistory()" title="Historique">📋</button>
-          <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
-        </div>
+    <div class="screen game-screen" id="screen-hearts" style="--game-color:var(--game-hearts)">
+      ${gameHeaderHtml('Dame de Pique', 'hearts-sub')}
+      <section class="game-scores cols-4" id="hearts-scores" aria-label="Pointage"></section>
+      <section class="game-panel" aria-label="Saisir la manche">
+        <div class="game-panel-head"><h2 class="game-panel-title" id="hearts-entry-title">Saisir la manche</h2><span class="game-panel-hint">Cœur = 1 point · Dame de pique = 13</span></div>
+        <div id="hearts-round-entry"></div>
+        <div class="hearts-total" id="hearts-round-total-box"><span>Total de la manche</span><strong id="hearts-round-total">0 / 25</strong></div>
+      </section>
+      <section class="game-recent" id="hearts-recent" aria-label="Dernières manches"></section>
+      <div class="game-footer">
+        <button class="btn btn-secondary" onclick="UI.heartsResetDraft()">Remettre à zéro</button>
+        <button class="btn btn-primary game-primary" id="hearts-submit" onclick="UI.heartsSubmitRound()" disabled>Valider la manche</button>
       </div>
-
-      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Temps de partie</span></span><strong data-game-timer-value>00:00</strong></div>
-
-      <div class="round-bar">
-        <div>
-          <div class="round-label">Manche en cours</div>
-          <div class="round-value" id="hearts-round-num">Round 0</div>
-        </div>
-        <div class="total-badge">
-          Total : <strong id="hearts-total-val">0</strong>
-          <div id="hearts-expected" style="font-size:14px;color:var(--text-secondary)"></div>
-        </div>
-      </div>
-
-      <div class="scoreboard" id="hearts-scores"></div>
-
-      <div class="card">
-        <div class="card-title">Saisir la manche</div>
-        <div class="round-entry-grid" id="hearts-round-entry"></div>
-        <div style="height:12px"></div>
-        <div class="round-total-display">
-          <div>
-            <div class="round-total-label">Variation de cette manche</div>
-            <div id="hearts-expected-total" class="round-total-expected"></div>
-          </div>
-          <div class="round-total-num" id="hearts-round-total">0</div>
-        </div>
-      </div>
-
-      <button class="btn btn-primary" id="hearts-submit" onclick="UI.heartsSubmitRound()" disabled>
-        ✓ Valider la manche
-      </button>
-
-      <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
-      <div class="bottom-safe"></div>
     </div>
 
     <!-- ══ MAGIC ══ -->
-    <div class="screen" id="screen-magic">
-      <div class="app-header">
-        <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title">🔮 Magic: The Gathering</div>
-        <div class="header-actions">
-          <button class="btn-back" onclick="UI.goHistory()" title="Historique">📋</button>
-          <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
-        </div>
-      </div>
-
-      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Temps de partie</span></span><strong data-game-timer-value>00:00</strong></div>
-
-      <!-- Quick amount selector -->
-      <div class="card" style="padding:12px 18px">
-        <div class="card-title" style="margin-bottom:8px">Valeur du bouton +/−</div>
+    <div class="screen game-screen" id="screen-magic" style="--game-color:var(--game-magic)">
+      ${gameHeaderHtml('Magic', 'magic-sub')}
+      <section class="game-panel" aria-label="Valeur des boutons">
+        <div class="game-panel-head"><h2 class="game-panel-title">Valeur des boutons + et −</h2></div>
         <div class="magic-quick-amounts">
           ${[1,2,3,5,10,15,20].map(v => `
             <button class="magic-quick-btn ${v===1?'selected':''}" data-val="${v}"
               onclick="UI.setMagicDelta(${v})">${v}</button>
           `).join('')}
         </div>
+      </section>
+      <div class="magic-grid game-scores" id="magic-players-grid"></div>
+      <div class="game-footer">
+        <button class="btn btn-secondary" onclick="UI.goHistory()">Historique</button>
+        <button class="btn btn-primary game-primary" onclick="UI.endGame()">Terminer la partie</button>
       </div>
-
-      <div class="magic-grid" id="magic-players-grid"></div>
-
-      <button class="btn btn-secondary btn-sm" onclick="UI.goHistory()">📋 Historique</button>
-      <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
-      <div class="bottom-safe"></div>
     </div>
 
     <!-- ══ JEU DE 500 ══ -->
-    <div class="screen" id="screen-five-hundred">
-      <div class="app-header">
-        <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title" id="fh-screen-title">🃏 Jeu de 500</div>
-        <div class="header-actions">
-          <button class="btn-back" onclick="UI.openFhInfoModal()" title="Infos">ℹ️</button>
-          <button class="btn-back" onclick="UI.goHistory()" title="Historique">📋</button>
-          <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
-        </div>
-      </div>
-
-      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Partie 1</span></span><strong data-game-timer-value>00:00</strong></div>
-
-      <div class="total-badge" id="fh-mode-badge" style="align-self:flex-start">Équipes · 1000 pts</div>
+    <div class="screen game-screen" id="screen-five-hundred" style="--game-color:var(--game-fiveh)">
+      ${gameHeaderHtml('Jeu de 500', 'fh-mode-badge', 'fh-screen-title')}
+      <div class="five-hundred-teams game-scores" id="fh-teams"></div>
       <div class="fh-next-bidder" id="fh-next-bidder-banner"><span>Première mise de la prochaine donne</span><strong>—</strong></div>
-      <div class="fh-series-inline" id="fh-series-inline"></div>
-      <div class="five-hundred-teams" id="fh-teams"></div>
-
-      <section class="card fh-contract-list-card" aria-label="Liste des contrats">
-        <div class="card-title">Contrats, ajustements et parties nulles</div>
-        <div class="setting-sub fh-contract-list-note">Tout ce qui influence le pointage de cette partie, du plus récent au plus vieux. Utilisez ✎ pour corriger un contrat, un ajustement ou une partie nulle.</div>
-        <div class="fh-contract-list" id="fh-contract-list"></div>
-      </section>
+      <div class="fh-series-inline" id="fh-series-inline" hidden></div>
 
       <div id="fh-victory" class="victory-banner" style="display:none">
-        <div class="victory-trophy">🏆</div>
-        <div class="victory-title">Victoire !</div>
+        <div class="victory-title">Victoire!</div>
         <div class="victory-sub" id="fh-winner-name"></div>
         <div class="victory-sub"><strong id="fh-winner-score"></strong> points</div>
         <div style="height:12px"></div>
         <button class="btn btn-primary btn-sm" onclick="UI.endGame()">Terminer</button>
       </div>
 
-      <div class="fh-action-row">
-        <button class="btn btn-primary" onclick="UI.openFhResultModal()">✓ Partie terminée</button>
-        <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">± Ajustement manuel</button>
-      </div>
+      <section class="card fh-contract-list-card game-panel" aria-label="Liste des contrats">
+        <div class="game-panel-head"><h2 class="game-panel-title">Contrats, ajustements et parties nulles</h2></div>
+        <div class="setting-sub fh-contract-list-note">Du plus récent au plus vieux. Touche ✎ pour corriger une ligne.</div>
+        <div class="fh-contract-list" id="fh-contract-list"></div>
+      </section>
 
-      <div class="fh-end-series-zone">
-        <button class="btn btn-danger btn-sm" onclick="UI.endGame()">■ Terminer la série</button>
-      </div>
       <div class="fh-starter-callout" id="fh-starter-callout" aria-live="polite">
         <span>À TOI DE COMMENCER</span>
         <strong id="fh-starter-callout-name">—</strong>
       </div>
-      <div class="bottom-safe"></div>
+      <div class="game-footer">
+        <button class="btn btn-secondary" onclick="UI.openFhManualAdjustModal()">Ajustement</button>
+        <button class="btn btn-primary game-primary" onclick="UI.openFhResultModal()">Saisir le résultat</button>
+      </div>
     </div>
 
     <!-- ══ GÉNÉRIQUE ══ -->
-    <div class="screen" id="screen-generic">
-      <div class="app-header">
-        <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title">🎮 Jeu Générique</div>
-        <div class="header-actions">
-          <button class="btn-back" onclick="UI.goHistory()" title="Historique">📋</button>
-          <button class="btn-back" onclick="UI.exportCurrentGame()" title="Exporter">📤</button>
-        </div>
-      </div>
-
-      <div class="game-timer-bar"><span>⏱ <span data-game-timer-label>Temps de partie</span></span><strong data-game-timer-value>00:00</strong></div>
-
+    <div class="screen game-screen" id="screen-generic" style="--game-color:var(--game-generic)">
+      ${gameHeaderHtml('Générique', 'generic-sub')}
       <div id="generic-victory" class="victory-banner" style="display:none">
-        <div class="victory-trophy">🏆</div>
-        <div class="victory-title">Victoire !</div>
+        <div class="victory-title">Victoire!</div>
         <div class="victory-sub" id="generic-winner-name"></div>
         <div style="height:12px"></div>
         <button class="btn btn-primary btn-sm" onclick="UI.endGame()">Terminer</button>
       </div>
-
-      <div id="generic-players" class="generic-score-players"></div>
-
-      <button class="btn btn-secondary btn-sm" onclick="UI.endGame()">Terminer la partie</button>
-      <div class="bottom-safe"></div>
+      <div id="generic-players" class="generic-score-players game-scores"></div>
+      <div class="game-footer">
+        <button class="btn btn-secondary" onclick="UI.goHistory()">Historique</button>
+        <button class="btn btn-primary game-primary" onclick="UI.endGame()">Terminer la partie</button>
+      </div>
     </div>
 
     <!-- ══ PARAMÈTRES ══ -->
@@ -5482,6 +5566,16 @@ function buildScreenHTML() {
           <div class="setting-sub">Valeur préremplie à l’ouverture de l’ajustement manuel. Par défaut : 50 points. Un appui long sur + ou − dans la fenêtre d’ajustement modifie cette valeur par pas de 50. Une valeur de 0 désactive aussi la demande de mot de passe pour les ajustements manuels. Toute modification de cette valeur doit toutefois être autorisée avec le mot de passe général.</div>
         </div>
         <button class="btn btn-success btn-sm" onclick="UI.saveFhManualAdjustPointsSetting()">✓ Enregistrer</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Dame de Pique</div>
+        <div class="form-group">
+          <label class="form-label" for="hearts-end-score-setting">Fin de partie à (points)</label>
+          <input class="form-input" id="hearts-end-score-setting" type="number" min="0" step="5" inputmode="numeric" value="${DEFAULT_HEARTS_END_SCORE}">
+          <div class="setting-sub">Dès qu’un joueur atteint ce pointage après une manche, l’application propose de terminer la partie : le plus bas pointage gagne. Mets 0 pour ne jamais terminer automatiquement.</div>
+        </div>
+        <button class="btn btn-success btn-sm" onclick="UI.saveHeartsEndScoreSetting()">✓ Enregistrer</button>
       </div>
 
       <div class="card">

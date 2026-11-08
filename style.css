@@ -3059,3 +3059,153 @@ button.home-kpi { cursor: pointer; }
 /* Boutons d’information des statistiques : cible tactile plus grande. */
 .stats-info-btn { width: 36px; height: 36px; min-width: 36px; font-size: 16px; border-radius: 18px; }
 .stats-info-btn-mini { width: 32px; height: 32px; min-width: 32px; font-size: 15px; }
+
+
+/* ================================================================
+   ScoreKeeper Pro 2.54 : écrans de partie unifiés (refonte, étape 2)
+   Même structure pour chaque jeu : en-tête, scores, saisie, historique, barre d'action.
+   ================================================================ */
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Les anciennes mises en grille des écrans de partie (grand écran) sont remplacées par une seule colonne. */
+#screen-hearts.active, #screen-five-hundred.active { display: flex !important; }
+.game-screen { gap: 18px; }
+.game-screen .game-timer-bar { display: none; }
+
+/* ── En-tête de partie ── */
+.game-head { display: flex; align-items: center; gap: 14px; }
+.game-head .btn-back svg { display: block; }
+.game-head-text { flex: 1; min-width: 0; }
+.game-head-title { display: flex; align-items: center; gap: 10px; font-family: var(--font-num); font-size: 24px; font-weight: 700; line-height: 1.2; }
+.game-dot { width: 12px; height: 12px; border-radius: 6px; flex-shrink: 0; background: var(--game-color); }
+.game-head-sub { font-size: 15px; color: var(--text-secondary); margin-top: 2px; }
+.game-timer-pill {
+  height: var(--touch); padding: 0 16px; border-radius: 14px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--game-color);
+}
+.game-timer-pill strong { font-family: var(--font-num); font-size: 20px; font-variant-numeric: tabular-nums; }
+
+/* ── Cartes de score ── */
+.game-scores { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.game-scores.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.five-hundred-teams.game-scores.individual { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.score-card, .five-hundred-teams .team-card {
+  padding: 16px 18px; border-radius: 22px; text-align: left;
+  background: var(--bg-card); border: 2px solid var(--border); min-width: 0;
+}
+.score-card.leader, .five-hundred-teams .team-card.leader {
+  border-color: var(--game-color);
+  background: color-mix(in srgb, var(--game-color) 14%, var(--bg-primary));
+}
+.five-hundred-teams .team-card.winner { border-color: var(--success); }
+.score-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.score-card-flag { font-size: 13px; font-weight: 700; letter-spacing: .4px; color: var(--game-color); }
+.score-card-rank { font-size: 14px; font-weight: 700; color: var(--text-secondary); }
+.score-card.leader .score-card-rank { color: var(--game-color); }
+.score-card-name, .five-hundred-teams .team-name { font-size: 17px; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.score-card-value, .five-hundred-teams .team-score {
+  font-family: var(--font-num); font-size: 48px; font-weight: 700; line-height: 1.1;
+  margin-top: 6px; font-variant-numeric: tabular-nums; color: var(--text-primary);
+}
+.five-hundred-teams .team-score { font-size: 60px; }
+.score-card-sub { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 15px; color: var(--text-strong); margin-top: 6px; }
+.score-progress { height: 8px; border-radius: 4px; background: var(--bg-primary); margin-top: 10px; overflow: hidden; }
+.score-progress > div { height: 100%; border-radius: 4px; background: var(--game-color); }
+
+/* ── Panneau de saisie ── */
+.game-panel, .game-screen .fh-contract-list-card {
+  padding: 20px 22px; border-radius: 24px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.game-panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.game-panel-title { margin: 0; font-size: 20px; font-weight: 700; color: var(--text-primary); text-transform: none; letter-spacing: 0; }
+.game-panel-hint { font-size: 15px; color: var(--text-secondary); }
+
+/* ── Dame de Pique : saisie par joueur ── */
+.hearts-row { min-height: 76px; display: flex; align-items: center; gap: 12px; padding: 0 2px; border-bottom: 1px solid var(--border); }
+.hearts-row:last-child { border-bottom: 0; }
+.hearts-row-name { flex: 1; min-width: 0; font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
+.hearts-queen-btn {
+  height: 48px; padding: 0 14px; border-radius: 12px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--game-hearts) 55%, transparent);
+  background: color-mix(in srgb, var(--game-hearts) 14%, var(--bg-card));
+  color: var(--game-hearts); font-family: var(--font-main); font-size: 15px; font-weight: 700;
+}
+.hearts-queen-btn[aria-pressed="true"] { background: var(--game-hearts); color: #0E1015; border-color: var(--game-hearts); }
+.stepper-btn {
+  width: 60px; height: 60px; border-radius: 16px; cursor: pointer; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--bg-card-2); color: var(--text-primary);
+  font-size: 28px; line-height: 1;
+}
+.stepper-btn:active { background: var(--bg-elevated); }
+.stepper-value { width: 60px; text-align: center; font-family: var(--font-num); font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hearts-total {
+  padding: 14px 16px; border-radius: 14px; display: flex; justify-content: space-between; align-items: center;
+  font-size: 17px; background: color-mix(in srgb, var(--danger) 12%, var(--bg-card));
+}
+.hearts-total strong { font-family: var(--font-num); font-size: 22px; color: var(--danger); }
+.hearts-total.valid { background: color-mix(in srgb, var(--success) 14%, var(--bg-card)); }
+.hearts-total.valid strong { color: var(--success); }
+
+/* ── Dernières manches ── */
+.game-recent { border-radius: 20px; background: var(--bg-card); border: 1px solid var(--border); overflow: hidden; }
+.game-recent-head { min-height: 56px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); font-size: 17px; font-weight: 700; }
+.hearts-table-row { display: grid; grid-template-columns: 80px repeat(var(--cols), minmax(0, 1fr)); padding: 12px 18px; font-size: 17px; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.hearts-table-row.head { border-top: 0; font-size: 14px; color: var(--text-secondary); }
+.hearts-table-row span { min-width: 0; overflow-wrap: anywhere; }
+.hearts-table-row .muted { color: var(--text-secondary); }
+.queen-mark { color: var(--game-hearts); font-weight: 700; }
+
+/* ── Barre d'action collée en bas de l'écran de partie ── */
+.game-footer {
+  position: sticky; bottom: 0; z-index: 5;
+  margin: auto calc(-1 * clamp(16px, 4vw, 32px)) -28px;
+  padding: 14px clamp(16px, 4vw, 32px) calc(18px + env(safe-area-inset-bottom, 0px));
+  display: flex; gap: 12px;
+  background: #13161C; border-top: 1px solid var(--border);
+}
+.game-footer .btn { width: auto; min-height: 60px; padding: 0 20px; }
+.game-footer .game-primary { flex: 1; background: var(--game-color); color: #0E1015; font-size: 18px; font-weight: 700; }
+
+/* ── 500 : bandeau du premier miseur ── */
+.game-screen .fh-next-bidder { border-radius: 18px; padding: 14px 18px; font-size: 16px; }
+.game-screen .fh-next-bidder strong { font-size: 20px; }
+
+/* ── Magic et Générique dans la structure commune ── */
+.game-screen .magic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.game-screen .magic-player-card { border-radius: 22px; padding: 20px; }
+.game-screen .magic-player-name { font-size: 19px; font-weight: 600; }
+.game-screen .magic-hp { font-family: var(--font-num); font-size: 64px; }
+.game-screen .magic-btn { min-height: 64px; font-size: 30px; border-radius: 16px; }
+.game-screen .magic-quick-btn { min-width: 56px; min-height: 52px; font-size: 18px; border-radius: 14px; }
+.game-screen .magic-quick-btn.selected { background: var(--game-color); color: #0E1015; border-color: var(--game-color); }
+.game-screen .generic-score-players { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.game-screen .generic-player-row { border-radius: 22px; padding: 18px 20px; background: var(--bg-card); border: 1px solid var(--border); }
+.game-screen .generic-player-name-score .name { font-size: 19px; font-weight: 600; }
+.game-screen .generic-player-name-score .score { font-family: var(--font-num); font-size: 44px; }
+.game-screen .generic-delta-input { min-height: 56px; font-size: 20px; border-radius: 14px; }
+.game-screen .generic-input-row .btn-icon { min-width: 56px; min-height: 56px; font-size: 26px; }
+
+/* ── Menu ⋯ et fin de partie ── */
+.game-menu { display: flex; flex-direction: column; gap: 10px; }
+.end-podium { display: flex; flex-direction: column; gap: 8px; }
+.end-podium-row { display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 10px; min-height: 52px; padding: 0 14px; border-radius: 14px; background: var(--bg-elevated); font-size: 17px; }
+.end-podium-row.winner { background: color-mix(in srgb, var(--success) 18%, var(--bg-card)); border: 1px solid var(--success); }
+
+@media (max-width: 640px) {
+  .game-scores.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .game-head { flex-wrap: wrap; }
+  .hearts-queen-btn { padding: 0 10px; font-size: 14px; }
+  .stepper-btn { width: 52px; height: 52px; }
+  .game-screen .magic-grid, .game-screen .generic-score-players { grid-template-columns: 1fr; }
+}
+
+/* Générique : le champ prend la place restante, les boutons + et − gardent leur taille. */
+.game-screen .generic-input-row { display: flex; gap: 8px; align-items: center; }
+.game-screen .generic-delta-input { flex: 1 1 auto; min-width: 0; width: auto; }
+.game-screen .generic-input-row .btn-icon { flex: 0 0 56px; width: 56px; padding: 0; }
+
+/* Les messages s’affichent au-dessus de la barre d’onglets et de la barre d’action des parties. */
+.toast-container { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
