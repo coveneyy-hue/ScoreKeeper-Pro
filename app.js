@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.54';
+const APP_VERSION = '2.55';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -1526,6 +1526,393 @@ const Stats = {
 };
 
 /* ================================================================
+   STATISTIQUES UNIFIÉES : même structure que le 500 en équipe pour
+   la Dame de Pique, Magic, le Générique et le 500 individuel.
+   Indice sur 10 = victoires 35 % · efficacité 25 % · valeur 20 %
+   · contribution 10 % · fin de partie 10 %. Seule la façon de mesurer
+   chaque ingrédient change selon le jeu.
+   ================================================================ */
+
+const UnifiedStats = {
+  selectedPlayer: null,
+
+  /** Clé de jeu utilisée par les puces de l'écran des statistiques. */
+  gameKeyOf(record) {
+    if (record.gameType === 'fiveHundred') return record.mode === 'teams' ? 'fiveHundredTeams' : 'fiveHundredSolo';
+    return record.gameType;
+  },
+
+  DEFS: {
+    hearts: {
+      label: 'Dame de Pique',
+      keyMetric: 'Moy./manche',
+      lowerIsBetter: true,
+      components: {
+        win: 'Victoires',
+        efficiency: 'Manches à 0 point',
+        value: 'Points évités par rapport à la table',
+        contribution: 'Manches sans la Dame de pique',
+        finisher: 'Parties terminées dans la meilleure moitié',
+      },
+      explain: 'manches à 0 point, points évités par rapport à la moyenne de la table, manches sans la Dame de pique et parties terminées dans la meilleure moitié.',
+    },
+    magic: {
+      label: 'Magic',
+      keyMetric: 'Rang moyen',
+      components: {
+        win: 'Victoires',
+        efficiency: 'Rang de survie',
+        value: 'Points de vie restants à la fin',
+        contribution: 'Parties dans la meilleure moitié',
+        finisher: 'Parties sans être éliminé en premier',
+      },
+      explain: 'rang de survie, points de vie restants, parties dans la meilleure moitié et parties sans être éliminé en premier.',
+    },
+    generic: {
+      label: 'Générique',
+      keyMetric: 'Points moy.',
+      components: {
+        win: 'Victoires',
+        efficiency: 'Rang final',
+        value: 'Points par rapport au gagnant',
+        contribution: 'Parties dans la meilleure moitié',
+        finisher: 'Parties au-dessus de la moyenne de la table',
+      },
+      explain: 'rang final, points par rapport au gagnant, parties dans la meilleure moitié et parties au-dessus de la moyenne de la table.',
+    },
+    fiveHundredSolo: {
+      label: '500 individuel',
+      keyMetric: 'Contrats réussis',
+      components: {
+        win: 'Victoires',
+        efficiency: 'Contrats réussis',
+        value: 'Pointage final sur 1000',
+        contribution: 'Part des contrats pris',
+        finisher: 'Parties dans la meilleure moitié',
+      },
+      explain: 'contrats réussis, pointage final sur 1000, part des contrats pris et parties dans la meilleure moitié.',
+    },
+  },
+
+  WEIGHTS: { win: 0.35, efficiency: 0.25, value: 0.20, contribution: 0.10, finisher: 0.10 },
+
+  /** Classement final d'une partie : liste {name, place, value} (place 1 = meilleur, égalités partagées). */
+  placements(gameKey, game) {
+    const players = game?.players || [];
+    if (!players.length) return [];
+    let scored;
+    if (gameKey === 'magic') {
+      // Plus tard un joueur est éliminé, meilleur est son rang. Les survivants passent devant.
+      const deathAt = new Map();
+      (game.history || []).forEach((h, i) => {
+        if (h && Number(h.newValue) <= 0 && !deathAt.has(h.player)) deathAt.set(h.player, i);
+      });
+      scored = players.map(p => ({
+        name: p.name,
+        sortKey: (!p.dead && p.life > 0) ? 1e9 + Number(p.life || 0) : (deathAt.has(p.name) ? deathAt.get(p.name) : -1),
+        value: Number(p.life) || 0,
+      }));
+      scored.sort((a, b) => b.sortKey - a.sortKey);
+    } else {
+      const lower = gameKey === 'hearts';
+      scored = players.map(p => ({ name: p.name, sortKey: Number(p.score) || 0, value: Number(p.score) || 0 }));
+      scored.sort((a, b) => lower ? a.sortKey - b.sortKey : b.sortKey - a.sortKey);
+    }
+    let place = 0;
+    return scored.map((s, i) => {
+      if (i === 0 || s.sortKey !== scored[i - 1].sortKey) place = i + 1;
+      return { name: s.name, place, value: s.value };
+    });
+  },
+
+  /** Mesures par joueur sur un ensemble de parties (objets {record, game}). */
+  measure(gameKey, items) {
+    const players = new Map();
+    const get = (name) => {
+      const key = Stats.nameKey(name);
+      if (!players.has(key)) players.set(key, {
+        key, name, games: 0, wins: 0, placeSum: 0, placeNorm: 0, topHalf: 0, notFirstOut: 0, aboveAvg: 0,
+        rounds: 0, roundPoints: 0, zeroRounds: 0, queenRounds: 0, queenKnownRounds: 0, bigRounds: 0,
+        relValue: 0, lifeShare: 0, scoreSum: 0, contracts: 0, success: 0, tableContracts: 0,
+      });
+      return players.get(key);
+    };
+    let tableRoundPoints = 0, tableRounds = 0;
+
+    items.forEach(({ record, game }) => {
+      const place = this.placements(gameKey, game);
+      const n = place.length;
+      const winners = new Set((record.winnerPlayers || []).map(w => Stats.nameKey(w)));
+      const values = place.map(p => p.value);
+      const avg = values.reduce((s, v) => s + v, 0) / (n || 1);
+      const best = gameKey === 'hearts' ? Math.min(...values) : Math.max(...values);
+      const lastPlace = Math.max(...place.map(p => p.place));
+
+      place.forEach(p => {
+        const x = get(p.name);
+        x.games += 1;
+        if (winners.has(x.key)) x.wins += 1;
+        x.placeSum += p.place;
+        x.placeNorm += n > 1 ? (n - p.place) / (n - 1) : 1;
+        if (p.place <= Math.ceil(n / 2)) x.topHalf += 1;
+        if (!(gameKey === 'magic' && p.place === lastPlace && n > 1)) x.notFirstOut += 1;
+        if (gameKey === 'hearts' ? p.value < avg : p.value > avg) x.aboveAvg += 1;
+        x.scoreSum += p.value;
+        if (gameKey === 'generic') x.relValue += best > 0 ? Math.max(0, Math.min(1, p.value / best)) : 0.5;
+        if (gameKey === 'magic') x.lifeShare += Math.max(0, Math.min(1, p.value / (Number(game.startingLife) || 20)));
+        if (gameKey === 'fiveHundredSolo') x.relValue += Math.max(0, Math.min(1, p.value / 1000));
+      });
+
+      if (gameKey === 'hearts') {
+        (game.history || []).forEach(r => {
+          if (!Array.isArray(r?.scores)) return;
+          const queenKnown = Object.prototype.hasOwnProperty.call(r, 'queenTo');
+          r.scores.forEach(s => {
+            const x = get(s.player);
+            const pts = Number(s.delta) || 0;
+            x.rounds += 1;
+            x.roundPoints += pts;
+            if (pts === 0) x.zeroRounds += 1;
+            if (pts >= 13) x.bigRounds += 1;
+            if (queenKnown) {
+              x.queenKnownRounds += 1;
+              if (r.queenTo === s.player) x.queenRounds += 1;
+            }
+            tableRoundPoints += pts;
+            tableRounds += 1;
+          });
+        });
+      }
+
+      if (gameKey === 'fiveHundredSolo') {
+        const contracts = Stats.contractRecordsFromGame(game);
+        place.forEach(p => { get(p.name).tableContracts += contracts.length; });
+        contracts.forEach(c => {
+          const x = get(c.player);
+          x.contracts += 1;
+          if (c.success) x.success += 1;
+        });
+      }
+    });
+
+    const tableAvgRound = tableRounds ? tableRoundPoints / tableRounds : 0;
+    players.forEach(x => {
+      const pct = (a, b) => b ? (a * 100) / b : 0;
+      const c = {};
+      c.win = pct(x.wins, x.games);
+      if (gameKey === 'hearts') {
+        const avgRound = x.rounds ? x.roundPoints / x.rounds : 0;
+        x.keyValue = avgRound;
+        x.keyText = x.rounds ? avgRound.toFixed(1).replace('.', ',') : '—';
+        c.efficiency = pct(x.zeroRounds, x.rounds);
+        c.value = tableAvgRound > 0 ? Math.max(0, Math.min(100, 50 + ((tableAvgRound - avgRound) / tableAvgRound) * 50)) : 50;
+        c.contribution = x.queenKnownRounds ? 100 - pct(x.queenRounds, x.queenKnownRounds) : 100 - pct(x.bigRounds, x.rounds);
+        c.finisher = pct(x.topHalf, x.games);
+      } else if (gameKey === 'magic') {
+        x.keyValue = x.games ? x.placeSum / x.games : 0;
+        x.keyText = x.games ? x.keyValue.toFixed(1).replace('.', ',') : '—';
+        c.efficiency = x.games ? (x.placeNorm / x.games) * 100 : 0;
+        c.value = x.games ? (x.lifeShare / x.games) * 100 : 0;
+        c.contribution = pct(x.topHalf, x.games);
+        c.finisher = pct(x.notFirstOut, x.games);
+      } else if (gameKey === 'generic') {
+        x.keyValue = x.games ? x.scoreSum / x.games : 0;
+        x.keyText = x.games ? String(Math.round(x.keyValue)) : '—';
+        c.efficiency = x.games ? (x.placeNorm / x.games) * 100 : 0;
+        c.value = x.games ? (x.relValue / x.games) * 100 : 0;
+        c.contribution = pct(x.topHalf, x.games);
+        c.finisher = pct(x.aboveAvg, x.games);
+      } else {
+        x.keyValue = pct(x.success, x.contracts);
+        x.keyText = x.contracts ? `${x.success}/${x.contracts}` : '—';
+        c.efficiency = x.contracts ? pct(x.success, x.contracts) : 50;
+        c.value = x.games ? (x.relValue / x.games) * 100 : 0;
+        c.contribution = pct(x.contracts, x.tableContracts);
+        c.finisher = pct(x.topHalf, x.games);
+      }
+      x.components = c;
+      x.index = Object.entries(this.WEIGHTS).reduce((s, [k, w]) => s + w * (c[k] || 0), 0) / 10;
+    });
+    return [...players.values()];
+  },
+
+  /** Plus long enchaînement de victoires par joueur, dans l'ordre chronologique. */
+  streaks(items) {
+    const current = new Map(), best = new Map();
+    items.forEach(({ record }) => {
+      const winners = new Set((record.winnerPlayers || []).map(w => Stats.nameKey(w)));
+      (record.players || []).forEach(name => {
+        const key = Stats.nameKey(name);
+        const v = winners.has(key) ? (current.get(key) || 0) + 1 : 0;
+        current.set(key, v);
+        const b = best.get(key);
+        if (!b || v > b.n) best.set(key, { name, n: v });
+      });
+    });
+    return [...best.values()].sort((a, b) => b.n - a.n)[0] || null;
+  },
+
+  records(gameKey, items) {
+    const out = [];
+    const ordered = items.slice().sort((a, b) => new Date(a.record.date) - new Date(b.record.date));
+    const streak = this.streaks(ordered);
+    if (gameKey === 'hearts') {
+      const wins = items.map(({ game, record }) => {
+        const w = (game.players || []).find(p => (record.winnerPlayers || []).some(n => Stats.nameKey(n) === Stats.nameKey(p.name)));
+        return w ? { name: w.name, score: w.score } : null;
+      }).filter(Boolean).sort((a, b) => a.score - b.score)[0];
+      if (wins) out.push(['Plus petit total gagnant', `${wins.score} · ${wins.name}`]);
+      let worst = null;
+      items.forEach(({ game }) => (game.history || []).forEach(r => (r.scores || []).forEach(s => {
+        if (!worst || Number(s.delta) > worst.pts) worst = { pts: Number(s.delta) || 0, name: s.player };
+      })));
+      if (worst) out.push(['Plus grosse manche subie', `${worst.pts} · ${worst.name}`]);
+      const longest = items.map(({ game }) => (game.history || []).filter(r => Array.isArray(r?.scores)).length).sort((a, b) => b - a)[0];
+      if (longest) out.push(['Partie la plus longue', `${longest} manches`]);
+    } else if (gameKey === 'magic') {
+      const bestLife = items.map(({ game, record }) => {
+        const w = (game.players || []).find(p => (record.winnerPlayers || []).some(n => Stats.nameKey(n) === Stats.nameKey(p.name)));
+        return w ? { name: w.name, life: w.life } : null;
+      }).filter(Boolean).sort((a, b) => b.life - a.life)[0];
+      if (bestLife) out.push(['Victoire avec le plus de vie', `${bestLife.life} PV · ${bestLife.name}`]);
+    } else {
+      const top = items.flatMap(({ game }) => (game.players || []).map(p => ({ name: p.name, score: Number(p.score) || 0 }))).sort((a, b) => b.score - a.score)[0];
+      if (top) out.push(['Plus haut pointage', `${top.score} · ${top.name}`]);
+    }
+    if (streak && streak.n > 1) out.push(['Plus longue série de victoires', `${streak.n} · ${streak.name}`]);
+    const timed = items.map(({ record, game }) => Number(record.durationMs) || Number(game?.timing?.durationMs) || 0).filter(ms => ms > 0).sort((a, b) => b - a)[0];
+    if (timed) out.push(['Partie la plus longue (durée)', Utils.formatDuration(timed)]);
+    return out;
+  },
+
+  /** Face à face : combien de fois chacun a terminé devant l'autre. */
+  headToHead(gameKey, items) {
+    const pairs = new Map();
+    items.forEach(({ game }) => {
+      const place = this.placements(gameKey, game);
+      for (let i = 0; i < place.length; i++) {
+        for (let j = i + 1; j < place.length; j++) {
+          const a = place[i], b = place[j];
+          const [p, q] = [a.name, b.name].sort((x, y) => x.localeCompare(y, 'fr-CA'));
+          const k = `${Stats.nameKey(p)}|${Stats.nameKey(q)}`;
+          const x = pairs.get(k) || { p, q, games: 0, pAhead: 0, qAhead: 0 };
+          x.games += 1;
+          const pa = place.find(z => z.name === p).place, qa = place.find(z => z.name === q).place;
+          if (pa < qa) x.pAhead += 1; else if (qa < pa) x.qAhead += 1;
+          pairs.set(k, x);
+        }
+      }
+    });
+    return [...pairs.values()].sort((a, b) => b.games - a.games || Math.abs(b.pAhead - b.qAhead) - Math.abs(a.pAhead - a.qAhead)).slice(0, 6)
+      .map(x => x.pAhead >= x.qAhead
+        ? { text: `${x.p} devant ${x.q}`, value: `${x.pAhead} fois sur ${x.games}` }
+        : { text: `${x.q} devant ${x.p}`, value: `${x.qAhead} fois sur ${x.games}` });
+  },
+
+  strengthAndWeakness(def, x, rows) {
+    const keys = Object.keys(this.WEIGHTS);
+    const avg = (k) => rows.reduce((s, r) => s + (r.components[k] || 0), 0) / (rows.length || 1);
+    const strong = keys.map(k => ({ k, gap: (x.components[k] || 0) - avg(k) })).sort((a, b) => b.gap - a.gap)[0];
+    // Le point à améliorer est l'ingrédient qui coûte le plus de points d'indice, autre que le point fort.
+    const weak = keys.filter(k => k !== strong.k)
+      .map(k => ({ k, loss: this.WEIGHTS[k] * (100 - (x.components[k] || 0)) }))
+      .sort((a, b) => b.loss - a.loss)[0];
+    const fmt = (k) => `${Math.round(x.components[k] || 0)} %`;
+    const cost = (weak.loss / 10).toFixed(1).replace('.', ',');
+    return {
+      strong: { title: def.components[strong.k], detail: `${fmt(strong.k)}, contre ${Math.round(avg(strong.k))} % en moyenne à la table.` },
+      weak: { title: def.components[weak.k], detail: `${fmt(weak.k)} : c’est ce qui lui coûte le plus, soit ${cost} point${weak.loss >= 20 ? 's' : ''} d’indice sur 10.` },
+    };
+  },
+
+  sparkline(values) {
+    if (values.length < 2) return '<div class="result-empty">Il faut au moins 2 parties pour voir une évolution.</div>';
+    const W = 640, H = 90, padX = 8, padY = 10;
+    const min = Math.min(...values), max = Math.max(...values), span = Math.max(0.5, max - min);
+    const pts = values.map((v, i) => [padX + (i * (W - 2 * padX)) / (values.length - 1), H - padY - ((v - min) / span) * (H - 2 * padY)]);
+    const last = pts[pts.length - 1];
+    const label = `Indice de ${values[0].toFixed(1)} à ${values[values.length - 1].toFixed(1)} sur ${values.length} parties`;
+    return `<svg class="unified-spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="${Utils.esc(label)}">
+      <line x1="${padX}" y1="${H - padY}" x2="${W - padX}" y2="${H - padY}" stroke="var(--border)" stroke-width="1"/>
+      <polyline points="${pts.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--game-color)" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="5" fill="var(--game-color)" stroke="var(--bg-card)" stroke-width="2"/>
+    </svg>`;
+  },
+
+  /** Rend la carte unifiée pour un jeu, à partir des parties déjà filtrées par l'écran. */
+  render({ gameKey, records, gamesById, minGames, playerFilter }) {
+    const el = document.getElementById('stats-unified');
+    if (!el) return;
+    const def = this.DEFS[gameKey];
+    const meta = gameKey === 'fiveHundredSolo' ? GAME_META.fiveHundred : GAME_META[gameKey];
+    el.style.setProperty('--game-color', meta.color);
+    const items = records
+      .filter(r => this.gameKeyOf(r) === gameKey && gamesById.has(r.sourceGameId))
+      .map(r => ({ record: r, game: gamesById.get(r.sourceGameId) }));
+
+    if (!items.length) {
+      el.innerHTML = `<div class="result-empty">Aucune partie terminée de ${Utils.esc(def.label)} ne correspond aux filtres.</div>`;
+      return;
+    }
+
+    const all = this.measure(gameKey, items);
+    const rows = all.filter(x => x.games >= minGames).sort((a, b) => b.index - a.index || b.wins - a.wins || a.name.localeCompare(b.name, 'fr-CA'));
+    const pool = rows.length ? rows : all.slice().sort((a, b) => b.index - a.index);
+    if (playerFilter && playerFilter !== 'all') this.selectedPlayer = playerFilter;
+    if (!pool.some(x => x.key === this.selectedPlayer)) this.selectedPlayer = pool[0]?.key || null;
+    const sel = pool.find(x => x.key === this.selectedPlayer);
+
+    const ranking = `<div class="unified-table">
+      <div class="unified-row head"><span>#</span><span>Joueur</span><span>Victoires</span><span>${Utils.esc(def.keyMetric)}</span><span class="right">Indice</span></div>
+      ${pool.map((x, i) => `<button type="button" class="unified-row ${x.key === this.selectedPlayer ? 'selected' : ''}" onclick="UnifiedStats.selectedPlayer='${Utils.esc(x.key)}';Screens.render_stats()" aria-pressed="${x.key === this.selectedPlayer}">
+        <span class="rank ${i === 0 ? 'first' : ''}">${i + 1}</span>
+        <span class="name">${Utils.esc(x.name)}</span>
+        <span>${x.wins} / ${x.games}</span>
+        <span>${Utils.esc(x.keyText)}</span>
+        <span class="right index"><span class="index-bar"><span style="width:${Math.round(x.index * 10)}%"></span></span><strong>${x.index.toFixed(1).replace('.', ',')}</strong></span>
+      </button>`).join('')}
+    </div>
+    ${rows.length ? '' : `<div class="setting-sub" style="padding:10px 4px 0">Personne n’a encore le minimum de ${minGames} parties : tous les joueurs sont affichés.</div>`}`;
+
+    let profile = '';
+    if (sel) {
+      const sw = this.strengthAndWeakness(def, sel, pool);
+      const mine = items
+        .filter(it => (it.record.players || []).some(n => Stats.nameKey(n) === sel.key))
+        .sort((a, b) => new Date(a.record.date) - new Date(b.record.date));
+      const evolution = mine.map((_, i) => (this.measure(gameKey, mine.slice(0, i + 1)).find(x => x.key === sel.key)?.index) || 0).slice(-12);
+      const compRows = Object.keys(this.WEIGHTS).map(k => `<div class="unified-comp"><span>${Utils.esc(def.components[k])} <small>${Math.round(this.WEIGHTS[k] * 100)} %</small></span><span class="index-bar"><span style="width:${Math.round(sel.components[k] || 0)}%"></span></span><strong>${Math.round(sel.components[k] || 0)} %</strong></div>`).join('');
+      profile = `<div class="unified-block">
+        <div class="unified-block-head"><h3>Profil : ${Utils.esc(sel.name)}</h3><span>Touche un joueur du classement</span></div>
+        <div class="unified-sw">
+          <div><span class="tag good">POINT FORT</span><strong>${Utils.esc(sw.strong.title)}</strong><p>${Utils.esc(sw.strong.detail)}</p></div>
+          <div><span class="tag warn">À AMÉLIORER</span><strong>${Utils.esc(sw.weak.title)}</strong><p>${Utils.esc(sw.weak.detail)}</p></div>
+        </div>
+        <div class="unified-comps">${compRows}</div>
+        <div class="unified-evo-head"><span>Évolution de l’indice, ${evolution.length} dernière${evolution.length > 1 ? 's' : ''} partie${evolution.length > 1 ? 's' : ''}</span>${evolution.length > 1 ? `<strong>${evolution[0].toFixed(1).replace('.', ',')} → ${evolution[evolution.length - 1].toFixed(1).replace('.', ',')}</strong>` : ''}</div>
+        ${this.sparkline(evolution)}
+      </div>`;
+    }
+
+    const h2h = this.headToHead(gameKey, items);
+    const recs = this.records(gameKey, items);
+    const list = (rowsArr) => rowsArr.length ? rowsArr.map(([a, b]) => `<div class="unified-kv"><span>${Utils.esc(a)}</span><strong>${Utils.esc(b)}</strong></div>`).join('') : '<div class="result-empty">Pas encore assez de parties.</div>';
+
+    el.innerHTML = `
+      <div class="unified-block">
+        <div class="unified-block-head"><h3>Classement</h3><span>${items.length} partie${items.length > 1 ? 's' : ''} · indice sur 10</span></div>
+        ${ranking}
+      </div>
+      ${profile}
+      <div class="unified-two">
+        <div class="unified-block"><div class="unified-block-head"><h3>Face à face</h3></div>${list(h2h.map(x => [x.text, x.value]))}</div>
+        <div class="unified-block"><div class="unified-block-head"><h3>Records</h3></div>${list(recs)}</div>
+      </div>
+      <div class="unified-explain"><strong>Même indice pour chaque jeu :</strong> victoires 35 % · efficacité 25 % · valeur 20 % · contribution 10 % · fin de partie 10 %. Pour ${Utils.esc(def.label)}, ces ingrédients sont mesurés par : ${Utils.esc(def.explain)}</div>`;
+  },
+};
+
+/* ================================================================
    SECTION 7 : RENDU DES ÉCRANS
    ================================================================ */
 
@@ -2923,6 +3310,26 @@ const Screens = {
       } else {
         gameHistoryEl.innerHTML = `<div class="stats-game-history-note">${historyGames.length} partie(s). Ouvre une partie pour voir ses équipes, les 4 joueurs, les statistiques propres à cette partie et tous les contrats dans l'ordre.</div>${historyGames.map(renderGame).join('')}`;
       }
+    }
+
+    // Puces de jeu et statistiques unifiées des autres jeux.
+    const chipKey = UI._statsGameKey || 'all';
+    UI.renderStatsGameChips();
+    const isUnified = Object.prototype.hasOwnProperty.call(UnifiedStats.DEFS, chipKey);
+    const unifiedCard = document.getElementById('stats-unified-card');
+    if (unifiedCard) unifiedCard.style.display = isUnified ? '' : 'none';
+    const fiveHundredOnly = ['.stats-impact-ranking-card', '.stats-strengths-card', '.stats-advanced-card', '.stats-game-history-card'];
+    fiveHundredOnly.forEach(sel => { const c = document.querySelector(sel); if (c) c.style.display = isUnified ? 'none' : ''; });
+    const teamCard = document.getElementById('stats-team-results')?.closest('.card');
+    if (teamCard) teamCard.style.display = isUnified ? 'none' : '';
+    if (isUnified) {
+      UnifiedStats.render({
+        gameKey: chipKey,
+        records,
+        gamesById: new Map(games.map(g => [g.id, g])),
+        minGames,
+        playerFilter,
+      });
     }
   },
 
@@ -5193,6 +5600,36 @@ const UI = {
 
   refreshStats() { Screens.render_stats(); },
 
+  /** Puces de jeu de l'écran des statistiques : elles pilotent les filtres « Jeu » et « Mode ». */
+  STATS_GAME_CHIPS: [
+    ['all', 'Tous les jeux', 'var(--accent)', 'all', 'all'],
+    ['fiveHundredTeams', '500 en équipe', 'var(--game-fiveh)', 'fiveHundred', 'teams'],
+    ['fiveHundredSolo', '500 individuel', 'var(--game-fiveh)', 'fiveHundred', 'individual'],
+    ['hearts', 'Dame de Pique', 'var(--game-hearts)', 'hearts', 'all'],
+    ['magic', 'Magic', 'var(--game-magic)', 'magic', 'all'],
+    ['generic', 'Générique', 'var(--game-generic)', 'generic', 'all'],
+  ],
+
+  renderStatsGameChips() {
+    const wrap = document.getElementById('stats-game-chips');
+    if (!wrap) return;
+    const current = this._statsGameKey || 'all';
+    wrap.innerHTML = this.STATS_GAME_CHIPS.map(([key, label, color]) =>
+      `<button type="button" class="history-chip ${current === key ? 'active' : ''}" style="--game-color:${color}" aria-pressed="${current === key}" onclick="UI.setStatsGame('${key}')">${label}</button>`
+    ).join('');
+  },
+
+  setStatsGame(key) {
+    const chip = this.STATS_GAME_CHIPS.find(c => c[0] === key) || this.STATS_GAME_CHIPS[0];
+    this._statsGameKey = chip[0];
+    const gameSel = document.getElementById('stats-game-filter');
+    const modeSel = document.getElementById('stats-mode-filter');
+    if (gameSel) gameSel.value = chip[3];
+    if (modeSel) modeSel.value = chip[4];
+    UnifiedStats.selectedPlayer = null;
+    Screens.render_stats();
+  },
+
   async resetAllStats() {
     const authorized = await Security.require('statsReset', 'Mot de passe requis pour réinitialiser toutes les statistiques :');
     if (!authorized) return;
@@ -5610,6 +6047,8 @@ function buildScreenHTML() {
         <div class="header-title">Statistiques</div>
       </div>
 
+      <div class="history-filter-chips" id="stats-game-chips" role="group" aria-label="Jeu"></div>
+
       <div class="card stats-filters">
         <div class="card-title stats-title-with-info"><span>Filtres</span><button class="stats-info-btn" onclick="UI.openStatsInfo('filters')" aria-label="Information sur les filtres">i</button></div>
         <div class="stats-filter-grid">
@@ -5621,6 +6060,10 @@ function buildScreenHTML() {
           <div class="form-group"><label class="form-label">Parties</label><select class="form-select" id="stats-game-count-filter" onchange="UI.refreshStats()"><option value="10">10 dernières</option><option value="20" selected>20 dernières</option><option value="50">50 dernières</option><option value="100">100 dernières</option><option value="all">Toutes</option></select></div>
           <div class="form-group"><label class="form-label">Minimum de parties</label><select class="form-select" id="stats-min-games-filter" onchange="UI.refreshStats()"><option value="3" selected>3 parties ou +</option><option value="all">Afficher tout</option></select></div>
         </div>
+      </div>
+
+      <div class="card stats-unified-card" id="stats-unified-card" style="display:none">
+        <div id="stats-unified"></div>
       </div>
 
       <div class="card stats-impact-ranking-card">

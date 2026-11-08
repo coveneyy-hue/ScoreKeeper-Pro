@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.54 : écrans de partie unifiés, Dame de pique +13 et seuil de fin
+ * v2.55 : statistiques unifiées pour tous les jeux
  */
 
-const CACHE_NAME = 'scorekeeper-v2.54';
+const CACHE_NAME = 'scorekeeper-v2.55';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.54',
-  './app.js?v=2.54',
+  './style.css?v=2.55',
+  './app.js?v=2.55',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

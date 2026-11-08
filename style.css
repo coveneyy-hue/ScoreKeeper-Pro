@@ -3209,3 +3209,67 @@ button.home-kpi { cursor: pointer; }
 
 /* Les messages s’affichent au-dessus de la barre d’onglets et de la barre d’action des parties. */
 .toast-container { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+
+
+/* ================================================================
+   ScoreKeeper Pro 2.55 : statistiques unifiées (refonte, étape 3)
+   ================================================================ */
+/* Les puces de jeu remplacent les listes « Jeu » et « Mode ». */
+.stats-filter-grid .form-group:has(#stats-game-filter),
+.stats-filter-grid .form-group:has(#stats-mode-filter) { display: none; }
+
+.stats-unified-card { padding: 8px 8px 12px; background: transparent; border: 0; }
+#stats-unified { display: flex; flex-direction: column; gap: 18px; }
+.unified-block { border-radius: 22px; background: var(--bg-card); border: 1px solid var(--border); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.unified-block-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.unified-block-head h3 { margin: 0; font-size: 19px; font-weight: 700; }
+.unified-block-head span { font-size: 14px; color: var(--text-secondary); }
+
+.unified-table { display: flex; flex-direction: column; }
+.unified-row {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) 100px 110px 130px; align-items: center;
+  min-height: 60px; padding: 0 8px; gap: 8px;
+  border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent;
+  color: var(--text-primary); font-family: var(--font-main); font-size: 17px; text-align: left; cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.unified-row.head { min-height: 40px; border-top: 0; font-size: 14px; color: var(--text-secondary); cursor: default; }
+.unified-row.selected { background: color-mix(in srgb, var(--game-color) 14%, transparent); border-radius: 12px; }
+.unified-row .rank { font-weight: 700; color: var(--text-secondary); }
+.unified-row .rank.first { color: var(--warning); }
+.unified-row .name { font-weight: 600; overflow-wrap: anywhere; }
+.unified-row .right { justify-self: end; text-align: right; }
+.unified-row .index { display: flex; align-items: center; gap: 10px; }
+.index-bar { display: inline-block; width: 52px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; flex-shrink: 0; }
+.index-bar > span { display: block; height: 100%; background: var(--game-color); }
+
+.unified-sw { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.unified-sw > div { padding: 14px 16px; border-radius: 16px; background: var(--bg-card-2); }
+.unified-sw .tag { display: block; font-size: 14px; font-weight: 700; letter-spacing: .4px; }
+.unified-sw .tag.good { color: var(--success); }
+.unified-sw .tag.warn { color: var(--warning); }
+.unified-sw strong { display: block; font-size: 17px; margin-top: 4px; }
+.unified-sw p { margin: 4px 0 0; font-size: 15px; color: var(--text-strong); line-height: 1.4; }
+.unified-comps { display: flex; flex-direction: column; gap: 8px; }
+.unified-comp { display: grid; grid-template-columns: minmax(0, 1fr) 120px 56px; align-items: center; gap: 12px; font-size: 15px; }
+.unified-comp small { color: var(--text-secondary); }
+.unified-comp .index-bar { width: 120px; height: 8px; border-radius: 4px; }
+.unified-comp strong { text-align: right; font-variant-numeric: tabular-nums; }
+.unified-evo-head { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--text-secondary); margin-top: 4px; }
+.unified-evo-head strong { color: var(--text-primary); }
+.unified-spark { width: 100%; height: 90px; display: block; }
+
+.unified-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.unified-kv { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; font-size: 16px; border-bottom: 1px solid var(--border); }
+.unified-kv:last-child { border-bottom: 0; }
+.unified-kv strong { text-align: right; }
+.unified-explain { padding: 14px 18px; border-radius: 16px; border: 1px dashed var(--border); font-size: 15px; color: var(--text-strong); line-height: 1.5; }
+.unified-explain strong { color: var(--text-primary); }
+
+@media (max-width: 640px) {
+  .unified-row { grid-template-columns: 32px minmax(0, 1fr) 70px 90px; }
+  .unified-row > :nth-child(4) { display: none; }
+  .unified-sw, .unified-two { grid-template-columns: 1fr; }
+  .unified-comp { grid-template-columns: minmax(0, 1fr) 70px 48px; }
+  .unified-comp .index-bar { width: 70px; }
+}
