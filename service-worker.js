@@ -1,13 +1,13 @@
 /**
  * Service Worker - ScoreKeeper Pro
- * v2.52 : règles Mulot du 500 mises à jour
+ * v2.53 : nouvelle base visuelle (onglets, accueil, textes agrandis)
  */
 
-const CACHE_NAME = 'scorekeeper-v2.52';
+const CACHE_NAME = 'scorekeeper-v2.53';
 const ASSETS_TO_CACHE = [
   './index.html',
-  './style.css?v=2.52',
-  './app.js?v=2.52',
+  './style.css?v=2.53',
+  './app.js?v=2.53',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'

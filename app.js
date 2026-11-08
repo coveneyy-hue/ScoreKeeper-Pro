@@ -6,7 +6,7 @@
 
 'use strict';
 
-const APP_VERSION = '2.52';
+const APP_VERSION = '2.53';
 const IMPACT_INDEX_FORMULA_VERSION = 1;
 const DEFAULT_MASTER_PASSWORD = 'yco302302';
 
@@ -421,6 +421,44 @@ const GameTimer = {
    SECTION 4 : ROUTEUR (navigation entre écrans)
    ================================================================ */
 
+// Écrans principaux de la barre d'onglets, et écrans de partie (écran toujours allumé).
+const TAB_ROOT_OF = { home: 'home', games: 'games', stats: 'stats', settings: 'settings' };
+const GAME_SCREENS = ['hearts', 'magic', 'five-hundred', 'generic'];
+
+// Garde l'écran allumé pendant une partie. Le navigateur relâche le verrou quand
+// l'application passe en arrière-plan : on le redemande au retour.
+const WakeLock = {
+  sentinel: null,
+  wanted: false,
+  async sync(wanted) {
+    this.wanted = wanted;
+    if (!('wakeLock' in navigator)) return;
+    try {
+      if (wanted && !this.sentinel) {
+        this.sentinel = await navigator.wakeLock.request('screen');
+        this.sentinel.addEventListener('release', () => { this.sentinel = null; });
+      } else if (!wanted && this.sentinel) {
+        const s = this.sentinel;
+        this.sentinel = null;
+        await s.release();
+      }
+    } catch (err) {
+      this.sentinel = null;
+    }
+  },
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && WakeLock.wanted) WakeLock.sync(true);
+});
+
+// Couleur, icône et description de chaque jeu, partagées par tous les écrans.
+const GAME_META = {
+  fiveHundred: { label: 'Jeu de 500', desc: 'Équipes ou individuel', color: 'var(--game-fiveh)', icon: '500' },
+  hearts: { label: 'Dame de Pique', desc: '25 points par manche', color: 'var(--game-hearts)', icon: '<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3c-3 4-7 6-7 10a4 4 0 0 0 6.2 3.3L10 21h4l-1.2-4.7A4 4 0 0 0 19 13c0-4-4-6-7-10z"/></svg>' },
+  magic: { label: 'Magic', desc: 'Points de vie', color: 'var(--game-magic)', icon: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.6-7 10-7 10z"/></svg>' },
+  generic: { label: 'Générique', desc: 'Tout jeu à points', color: 'var(--game-generic)', icon: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>' },
+};
+
 const Router = {
   /** Navigue vers un écran donné */
   go(screenId, data = {}) {
@@ -429,10 +467,16 @@ const Router = {
     if (target) {
       target.classList.add('active');
       State.currentScreen = screenId;
-      // Synchronise le rail de navigation (visible tablette/desktop)
-      document.querySelectorAll('.rail-link[data-screen]').forEach(b => {
-        b.classList.toggle('active', b.dataset.screen === screenId);
+      // Barre d'onglets du bas : visible seulement sur les écrans principaux.
+      const tabRoot = TAB_ROOT_OF[screenId] || null;
+      document.body.classList.toggle('has-tabbar', !!tabRoot);
+      document.querySelectorAll('.tab-btn-nav[data-tab]').forEach(b => {
+        const active = b.dataset.tab === tabRoot;
+        b.classList.toggle('active', active);
+        if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
       });
+      // Pendant une partie, la tablette ne doit pas se mettre en veille.
+      WakeLock.sync(GAME_SCREENS.includes(screenId));
       // Appelé au changement d'écran pour rendre le contenu dynamique
       Screens.render(screenId, data);
     }
@@ -1493,28 +1537,66 @@ const Screens = {
 
   /* ─── Accueil ─── */
   async render_home() {
-    // Vérifier s'il y a une partie en cours à reprendre
     const games = await DB.getAll('games');
+    const dateEl = document.getElementById('home-date');
+    if (dateEl) {
+      const txt = new Date().toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' });
+      dateEl.textContent = txt.charAt(0).toUpperCase() + txt.slice(1);
+    }
+
+    // Partie en cours à reprendre (la plus récente).
     const active = games
       .filter(g => g.status === 'active')
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-
+      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     const banner = document.getElementById('resume-banner');
     if (active.length > 0) {
       const g = active[0];
-      const typeLabel = { hearts: '♠ Dame de Pique', magic: '🔮 Magic', fiveHundred: '🃏 Jeu de 500', generic: '🎮 Générique' };
+      const meta = GAME_META[g.type] || GAME_META.generic;
+      banner.style.setProperty('--game-color', meta.color);
       banner.innerHTML = `
-        <div class="resume-banner-icon">▶️</div>
-        <div class="resume-banner-text">
-          <div class="resume-banner-title">Reprendre la partie</div>
-          <div class="resume-banner-sub">${Utils.esc(typeLabel[g.type] || g.type)} · ${Utils.formatDate(g.updatedAt)}</div>
-        </div>
-        <div class="resume-banner-arrow">›</div>
-      `;
+        <span class="home-resume-play"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
+        <span style="flex:1;min-width:0">
+          <span class="home-resume-kicker" style="display:block">REPRENDRE LA PARTIE</span>
+          <span class="home-resume-title" style="display:block">${Utils.esc(this.homeGameTitle(g))}</span>
+          <span class="home-resume-sub" style="display:block">${Utils.esc(this.homeGameScoreLine(g))}</span>
+          ${active.length > 1 ? `<span class="home-resume-more" style="display:block">${active.length - 1} autre(s) partie(s) en cours : archivables dans Réglages</span>` : ''}
+        </span>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="color:var(--game-color);flex-shrink:0"><path d="M9 6l6 6-6 6"/></svg>`;
       banner.style.display = 'flex';
       banner.onclick = () => UI.resumeGame(g);
     } else {
       banner.style.display = 'none';
+    }
+
+    // Derniers résultats (mêmes données que les statistiques).
+    const records = Stats.records(games).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const list = document.getElementById('home-recent');
+    if (list) list.innerHTML = this.resultRowsHtml(records.slice(0, 4), 'Aucune partie terminée pour l’instant.');
+
+    // Chiffres clés.
+    const now = new Date();
+    const thisMonth = records.filter(r => {
+      const d = new Date(r.date);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    });
+    const wins = new Map();
+    records.filter(r => (now - new Date(r.date)) <= 30 * 86400000).forEach(r => {
+      (r.winnerPlayers || []).forEach(name => {
+        const key = Stats.nameKey(name);
+        const x = wins.get(key) || { name, n: 0 };
+        x.n += 1;
+        wins.set(key, x);
+      });
+    });
+    const top = [...wins.values()].sort((a, b) => b.n - a.n)[0] || null;
+    const lastBackup = Number(localStorage.getItem('lastFullBackupAt')) || 0;
+    const days = lastBackup ? Math.floor((Date.now() - lastBackup) / 86400000) : null;
+    const kpis = document.getElementById('home-kpis');
+    if (kpis) {
+      kpis.innerHTML = `
+        <div class="home-kpi"><div class="home-kpi-label">Parties ce mois-ci</div><div class="home-kpi-value big">${thisMonth.length}</div></div>
+        <div class="home-kpi"><div class="home-kpi-label">Plus de victoires, 30 jours</div><div class="home-kpi-value">${top ? Utils.esc(top.name) : '—'}</div><div class="home-kpi-sub">${top ? `${top.n} victoire${top.n > 1 ? 's' : ''}` : 'Aucune partie récente'}</div></div>
+        <button type="button" class="home-kpi ${days === null || days >= 7 ? 'warn' : ''}" onclick="Router.go('settings')"><div class="home-kpi-label">Dernière sauvegarde</div><div class="home-kpi-value">${days === null ? 'Jamais' : days === 0 ? 'Aujourd’hui' : `Il y a ${days} j`}</div><div class="home-kpi-sub">${days === null || days >= 7 ? 'Touche pour sauvegarder' : 'Tout est à jour'}</div></button>`;
     }
 
     // Gestion bouton installation PWA
@@ -1524,6 +1606,74 @@ const Screens = {
     } else {
       installBanner.style.display = 'none';
     }
+  },
+
+  /** Titre court d'une partie, commun à l'accueil et à l'historique. */
+  homeGameTitle(g) {
+    const meta = GAME_META[g.type] || GAME_META.generic;
+    if (g.type === 'fiveHundred' && (g.mode || 'teams') === 'teams') {
+      const n = g.series?.gameNumber || 1;
+      const label = g.series?.bestOf > 1 ? `${g.series.winsNeeded} de ${g.series.bestOf}` : '1 partie';
+      return `500 en équipe · partie ${n} (${label})`;
+    }
+    if (g.type === 'fiveHundred') return '500 individuel';
+    return meta.label;
+  },
+
+  /** Ligne de pointage d'une partie en cours. */
+  homeGameScoreLine(g) {
+    if (g.type === 'fiveHundred' && (g.mode || 'teams') === 'teams') {
+      const t = g.teams || [];
+      const w = g.series?.wins || [0, 0];
+      return `${t[0]?.name || ''} ${t[0]?.score ?? 0} · ${t[1]?.name || ''} ${t[1]?.score ?? 0} · série ${w[0] || 0}-${w[1] || 0}`;
+    }
+    const players = g.players || [];
+    const value = (p) => g.type === 'magic' ? `${p.life} PV` : `${p.score}`;
+    return players.map(p => `${p.name} ${value(p)}`).join(' · ');
+  },
+
+  /** Lignes de résultats terminés (accueil et historique). */
+  resultRowsHtml(records, emptyText) {
+    if (!records.length) return `<div class="result-empty">${Utils.esc(emptyText)}</div>`;
+    const gameKey = (r) => r.gameType === 'fiveHundred' ? 'fiveHundred' : r.gameType;
+    return records.map(r => {
+      const meta = GAME_META[gameKey(r)] || GAME_META.generic;
+      const winners = r.winnerPlayers || [];
+      const title = winners.length
+        ? `${winners.join(' & ')} ${winners.length > 1 ? 'gagnent' : 'gagne'}`
+        : 'Partie sans gagnant';
+      const mode = r.gameType === 'fiveHundred' ? (r.mode === 'teams' ? '500 en équipe' : '500 individuel') : meta.label;
+      const when = new Date(r.date).toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' });
+      const duration = Number(r.durationMs) > 0 ? ` · ${Utils.formatDuration(r.durationMs)}` : '';
+      const scores = Array.isArray(r.finalScores) && r.finalScores.length ? r.finalScores.join(' – ') : '';
+      return `<div class="result-row" style="--game-color:${meta.color}">
+        <span class="result-dot"></span>
+        <div class="result-text"><div class="result-title">${Utils.esc(title)}</div><div class="result-meta">${Utils.esc(mode)} · ${Utils.esc(when)}${duration}</div></div>
+        ${scores ? `<span class="result-score">${Utils.esc(scores)}</span>` : ''}
+      </div>`;
+    }).join('');
+  },
+
+  /* ─── Historique de toutes les parties ─── */
+  async render_games() {
+    const games = await DB.getAll('games');
+    const records = Stats.records(games).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const filter = UI._gamesFilter || 'all';
+    const keyOf = (r) => r.gameType === 'fiveHundred' ? (r.mode === 'teams' ? 'fiveHundredTeams' : 'fiveHundredSolo') : r.gameType;
+    const chips = [
+      ['all', 'Tous les jeux', 'var(--accent)'],
+      ['fiveHundredTeams', '500 en équipe', GAME_META.fiveHundred.color],
+      ['fiveHundredSolo', '500 individuel', GAME_META.fiveHundred.color],
+      ['hearts', 'Dame de Pique', GAME_META.hearts.color],
+      ['magic', 'Magic', GAME_META.magic.color],
+      ['generic', 'Générique', GAME_META.generic.color],
+    ];
+    document.getElementById('games-filter').innerHTML = chips.map(([key, label, color]) =>
+      `<button type="button" class="history-chip ${filter === key ? 'active' : ''}" style="--game-color:${color}" aria-pressed="${filter === key}" onclick="UI._gamesFilter='${key}';Screens.render_games()">${label}</button>`
+    ).join('');
+    const shown = filter === 'all' ? records : records.filter(r => keyOf(r) === filter);
+    document.getElementById('games-count').textContent = `${shown.length} partie${shown.length > 1 ? 's' : ''} terminée${shown.length > 1 ? 's' : ''}`;
+    document.getElementById('games-list').innerHTML = this.resultRowsHtml(shown.slice(0, 200), 'Aucune partie terminée pour ce jeu.');
   },
 
   /* ─── Création de partie ─── */
@@ -4679,7 +4829,10 @@ const UI = {
     };
 
     Utils.downloadJSON(data, `scorekeeper-backup-${new Date().toISOString().slice(0,10)}.json`);
+    // Date affichée à l'accueil pour rappeler de sauvegarder régulièrement.
+    localStorage.setItem('lastFullBackupAt', String(Date.now()));
     Utils.toast(`Sauvegarde complète : ${games.length} partie(s)`, 'success', 3500);
+    if (State.currentScreen === 'home') Screens.render_home();
   },
 
   async exportCurrentGame() {
@@ -5047,98 +5200,59 @@ function buildScreenHTML() {
     </div>
 
     <div class="app-shell">
-      <!-- Rail de navigation (tablette et plus) -->
-      <nav class="side-rail" aria-label="Navigation principale">
-        <div class="rail-brand">
-          <span class="rail-logo">🂡</span>
-          <span class="rail-title">ScoreKeeper <em>Pro</em></span>
-        </div>
-        <button class="rail-link active" data-screen="home" onclick="Router.go('home')">
-          <span class="rail-icon">🏠</span><span>Accueil</span>
-        </button>
-        <button class="rail-link" data-screen="stats" onclick="Router.go('stats')">
-          <span class="rail-icon">📊</span><span>Statistiques</span>
-        </button>
-        <button class="rail-link" data-screen="settings" onclick="UI.openSettings()">
-          <span class="rail-icon">⚙</span><span>Paramètres</span>
-        </button>
-
-        <div class="rail-divider"></div>
-        <div class="rail-section-label">Nouvelle partie</div>
-        <button class="rail-link" onclick="UI.startNewGame('hearts')">
-          <span class="rail-icon">♠</span><span>Dame de Pique</span>
-        </button>
-        <button class="rail-link" onclick="UI.startNewGame('magic')">
-          <span class="rail-icon">🔮</span><span>Magic</span>
-        </button>
-        <button class="rail-link" onclick="UI.startNewGame('fiveHundred')">
-          <span class="rail-icon">🃏</span><span>Jeu de 500</span>
-        </button>
-        <button class="rail-link" onclick="UI.startNewGame('generic')">
-          <span class="rail-icon">🎮</span><span>Générique</span>
-        </button>
-
-        <div class="rail-spacer"></div>
-        <div class="rail-version">ScoreKeeper Pro · v${APP_VERSION}</div>
-      </nav>
-
       <div class="screens-wrap">
 
     <!-- ══ ACCUEIL ══ -->
     <div class="screen active" id="screen-home">
-      <div class="home-hero">
-        <div class="home-logo">🂡</div>
-        <div class="home-title">ScoreKeeper Pro</div>
-        <div class="home-subtitle">Gardez le score. Partout. Hors ligne.</div>
+      <div class="home-top">
+        <div class="home-brand">
+          <span class="home-brand-mark" aria-hidden="true">♠</span>
+          <div>
+            <div class="home-brand-name">ScoreKeeper Pro</div>
+            <div class="home-brand-date" id="home-date"></div>
+          </div>
+        </div>
+        <button type="button" class="home-icon-btn" onclick="Router.go('settings')" aria-label="Réglages">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+        </button>
       </div>
 
-      <div id="resume-banner" class="resume-banner" style="display:none"></div>
+      <button type="button" id="resume-banner" class="home-resume" style="display:none"></button>
 
       <div id="install-banner" class="install-banner" style="display:none">
-        <div class="install-banner-icon">📲</div>
         <div class="install-banner-text">Installer l'application sur cet appareil pour un accès rapide</div>
         <button class="btn btn-primary btn-sm" onclick="UI.installPWA()">Installer</button>
       </div>
 
-      <div class="games-grid">
-        <div class="game-card hearts" onclick="UI.startNewGame('hearts')">
-          <span class="game-card-icon">♠</span>
-          <div class="game-card-name">Dame de Pique</div>
-          <div class="game-card-desc">Hearts · 25 pts par manche</div>
+      <section class="home-section">
+        <h2 class="home-section-title" style="margin:0">Nouvelle partie</h2>
+        <div class="home-tiles">
+          ${['fiveHundred', 'hearts', 'magic', 'generic'].map(type => `
+            <button type="button" class="home-tile" style="--game-color:${GAME_META[type].color}" onclick="UI.startNewGame('${type}')">
+              <span class="home-tile-icon">${GAME_META[type].icon}</span>
+              <span><span class="home-tile-name" style="display:block">${GAME_META[type].label}</span><span class="home-tile-desc" style="display:block">${GAME_META[type].desc}</span></span>
+            </button>`).join('')}
         </div>
-        <div class="game-card magic" onclick="UI.startNewGame('magic')">
-          <span class="game-card-icon">🔮</span>
-          <div class="game-card-name">Magic</div>
-          <div class="game-card-desc">The Gathering · Points de vie</div>
-        </div>
-        <div class="game-card fiveh" onclick="UI.startNewGame('fiveHundred')">
-          <span class="game-card-icon">🃏</span>
-          <div class="game-card-name">Jeu de 500</div>
-          <div class="game-card-desc">Équipes ou individuel · Mulots</div>
-        </div>
-        <div class="game-card generic" onclick="UI.startNewGame('generic')">
-          <span class="game-card-icon">🎮</span>
-          <div class="game-card-name">Générique</div>
-          <div class="game-card-desc">Tout type de jeu</div>
-        </div>
-      </div>
+      </section>
 
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="Router.go('stats')">📊 Statistiques</button>
-        <button class="btn btn-secondary" onclick="UI.openSettings()">⚙ Paramètres</button>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Données</div>
-        <div class="btn-row">
-          <button class="btn btn-secondary btn-sm" onclick="UI.exportData()">📤 Sauvegarde complète</button>
-          <button class="btn btn-secondary btn-sm" onclick="UI.importData()">📥 Restaurer</button>
+      <section class="home-section">
+        <div class="home-section-head">
+          <h2 class="home-section-title" style="margin:0">Derniers résultats</h2>
+          <button type="button" class="home-link-btn" onclick="Router.go('games')">Historique complet</button>
         </div>
-        <div style="height:10px"></div>
-        <button class="btn btn-danger btn-sm" onclick="UI.resetAllData()">♻ Réinitialiser toutes les données</button>
-      </div>
+        <div class="result-list" id="home-recent"></div>
+      </section>
 
-      <div class="home-version">Version ${APP_VERSION}</div>
+      <div class="home-kpis" id="home-kpis"></div>
+      <div class="bottom-safe"></div>
+    </div>
+
+    <!-- ══ HISTORIQUE DE TOUTES LES PARTIES ══ -->
+    <div class="screen" id="screen-games">
+      <div class="app-header"><div class="header-title">Historique</div></div>
+      <div class="history-filter-chips" id="games-filter"></div>
+      <div class="setting-sub" id="games-count"></div>
+      <div class="result-list" id="games-list"></div>
       <div class="bottom-safe"></div>
     </div>
 
@@ -5176,7 +5290,7 @@ function buildScreenHTML() {
         </div>
         <div class="total-badge">
           Total : <strong id="hearts-total-val">0</strong>
-          <div id="hearts-expected" style="font-size:11px;color:var(--text-secondary)"></div>
+          <div id="hearts-expected" style="font-size:14px;color:var(--text-secondary)"></div>
         </div>
       </div>
 
@@ -5313,8 +5427,19 @@ function buildScreenHTML() {
     <!-- ══ PARAMÈTRES ══ -->
     <div class="screen" id="screen-settings">
       <div class="app-header">
-        <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title">⚙ Paramètres</div>
+        <div class="header-title">Réglages</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Données</div>
+        <div class="setting-sub" style="margin-bottom:14px">Tes parties ne sont gardées que sur cet appareil. Une sauvegarde complète régulière te protège si la tablette est perdue ou réinitialisée.</div>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" onclick="UI.exportData()">Sauvegarde complète</button>
+          <button class="btn btn-secondary btn-sm" onclick="UI.importData()">Restaurer</button>
+        </div>
+        <div style="height:10px"></div>
+        <button class="btn btn-danger btn-sm" onclick="UI.resetAllData()">Réinitialiser toutes les données</button>
+        <div class="setting-sub" style="margin-top:12px">ScoreKeeper Pro · version ${APP_VERSION}</div>
       </div>
 
       <div class="card">
@@ -5388,8 +5513,7 @@ function buildScreenHTML() {
     <!-- ══ STATISTIQUES ══ -->
     <div class="screen" id="screen-stats">
       <div class="app-header">
-        <button class="btn-back" onclick="Router.go('home')">‹</button>
-        <div class="header-title">📊 Statistiques</div>
+        <div class="header-title">Statistiques</div>
       </div>
 
       <div class="card stats-filters">
@@ -5460,7 +5584,24 @@ function buildScreenHTML() {
 
       </div><!-- /.screens-wrap -->
     </div><!-- /.app-shell -->
+
+    <!-- Barre d'onglets : écrans principaux seulement -->
+    <nav class="tab-bar" aria-label="Sections">
+      <button type="button" class="tab-btn-nav active" data-tab="home" onclick="Router.go('home')" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>Accueil
+      </button>
+      <button type="button" class="tab-btn-nav" data-tab="games" onclick="Router.go('games')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>Historique
+      </button>
+      <button type="button" class="tab-btn-nav" data-tab="stats" onclick="Router.go('stats')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 20v-7M12 20V5M19 20v-11"/></svg>Statistiques
+      </button>
+      <button type="button" class="tab-btn-nav" data-tab="settings" onclick="Router.go('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Réglages
+      </button>
+    </nav>
   `;
+  document.body.classList.add('has-tabbar');
 }
 
 /* ================================================================
